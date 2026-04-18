@@ -1,0 +1,9 @@
+# Bootstrap for the staging cluster.
+# Installs: ingress-nginx, argocd-manager SA, registry ConfigMap.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../infrastructure/ingress-nginx
+  - ../../infrastructure/argocd-manager
+  - ../../infrastructure/registry

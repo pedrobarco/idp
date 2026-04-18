@@ -1,0 +1,11 @@
+# Bootstrap for the dev (hub) cluster.
+# Installs: ArgoCD, Gitea, ingress-nginx, registry ConfigMap, cluster secrets.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../infrastructure/argocd
+  - ../../infrastructure/gitea
+  - ../../infrastructure/ingress-nginx
+  - ../../infrastructure/registry
+  - cluster-secrets/
