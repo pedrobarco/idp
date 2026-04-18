@@ -1,0 +1,25 @@
+# Kind cluster config for the prod-2 cluster.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: prod-2
+networking:
+  apiServerPort: 6446
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8082
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8445
+        protocol: TCP
