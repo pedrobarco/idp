@@ -1,0 +1,49 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: gitea
+
+resources:
+  - namespace.yaml
+
+helmCharts:
+  - name: gitea
+    repo: https://dl.gitea.com/charts/
+    version: "12.5.0"
+    releaseName: gitea
+    namespace: gitea
+    includeCRDs: true
+    valuesInline:
+      gitea:
+        admin:
+          username: admin
+          password: admin
+          email: admin@idp.localhost
+        config:
+          database:
+            DB_TYPE: sqlite3
+          server:
+            DOMAIN: gitea.idp.localhost
+            ROOT_URL: http://gitea.idp.localhost
+      ingress:
+        enabled: true
+        className: nginx
+        hosts:
+          - host: gitea.idp.localhost
+            paths:
+              - path: /
+                pathType: Prefix
+      service:
+        http:
+          port: 3000
+      persistence:
+        enabled: true
+        size: 1Gi
+      postgresql:
+        enabled: false
+      postgresql-ha:
+        enabled: false
+      valkey:
+        enabled: false
+      test:
+        enabled: false
