@@ -1,0 +1,22 @@
+# Root Application that tracks the applicationsets/ directory.
+# ArgoCD auto-discovers and applies any ApplicationSet dropped here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: applicationsets
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+    targetRevision: HEAD
+    path: applicationsets
+    directory:
+      exclude: applicationsets.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

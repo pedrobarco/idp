@@ -1,0 +1,40 @@
+# Git directory generator: discovers deployment targets from clusters/ directory.
+# Path: clusters/<cluster>/<namespace>/hello-app
+# Add a new directory → hello-app auto-deploys there.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: hello-app
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+        revision: HEAD
+        directories:
+          - path: "clusters/*/*/hello-app"
+  template:
+    metadata:
+      name: "hello-app-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
+      labels:
+        app.kubernetes.io/name: hello-app
+        app.kubernetes.io/part-of: idp
+        app.kubernetes.io/cluster: "{{ index .path.segments 1 }}"
+    spec:
+      project: default
+      source:
+        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+        targetRevision: HEAD
+        path: "{{ .path.path }}"
+      destination:
+        name: "{{ index .path.segments 1 }}"
+        namespace: "{{ index .path.segments 2 }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
