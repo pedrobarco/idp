@@ -12,6 +12,43 @@ make clean    # tear everything down
 
 ## Architecture
 
+```mermaid
+graph TB
+    subgraph docker["Docker Network (kind)"]
+
+        subgraph dev["dev cluster :80"]
+            ArgoCD
+            Gitea
+            nginx_dev[ingress-nginx]
+            app_dev[hello-app<br/><i>dev/dev</i>]
+        end
+
+        subgraph staging["staging cluster :8080"]
+            nginx_stg[ingress-nginx]
+            app_qa[hello-app<br/><i>staging/qa</i>]
+            app_stage[hello-app<br/><i>staging/stage</i>]
+        end
+
+        subgraph prod1["prod-1 cluster :8081"]
+            nginx_p1[ingress-nginx]
+            app_p1[hello-app<br/><i>prod-1/prod</i>]
+        end
+
+        subgraph prod2["prod-2 cluster :8082"]
+            nginx_p2[ingress-nginx]
+            app_p2[hello-app<br/><i>prod-2/prod</i>]
+        end
+
+        registry["kind-registry :5001"]
+    end
+
+    Gitea -- "repo sync" --> ArgoCD
+    ArgoCD -- "manages" --> app_dev
+    ArgoCD -- "manages" --> staging
+    ArgoCD -- "manages" --> prod1
+    ArgoCD -- "manages" --> prod2
+```
+
 Four kind clusters simulate a real multi-cluster environment:
 
 | Cluster   | Role                           | Port    |
