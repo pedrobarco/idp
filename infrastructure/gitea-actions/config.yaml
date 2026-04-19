@@ -1,0 +1,19 @@
+log:
+  level: info
+runner:
+  file: .runner
+  capacity: 1
+  timeout: 1h
+cache:
+  enabled: false
+container:
+  network: host
+  docker_host: tcp://localhost:2376
+  privileged: true
+  options: >-
+    -v /certs/client:/certs/client
+    -e DOCKER_HOST=tcp://localhost:2376
+    -e DOCKER_TLS_VERIFY=1
+    -e DOCKER_CERT_PATH=/certs/client
+  valid_volumes:
+    - /certs/client

@@ -6,7 +6,6 @@ kind: Kustomization
 resources:
   - ../../infrastructure/argocd
   - ../../infrastructure/gitea
-  - ../../infrastructure/gitea-actions
   - ../../infrastructure/ingress-nginx
   - ../../infrastructure/registry
   - cluster-secrets/

@@ -20,6 +20,12 @@ spec:
           emptyDir: {}
         - name: runner-data
           emptyDir: {}
+        - name: runner-config
+          configMap:
+            name: gitea-actions-runner-config
+        - name: dind-config
+          configMap:
+            name: gitea-actions-dind-config
       containers:
         - name: runner
           image: gitea/act_runner:nightly
@@ -46,13 +52,17 @@ spec:
                 secretKeyRef:
                   name: gitea-actions-runner-token
                   key: token
+            - name: CONFIG_FILE
+              value: /config/config.yaml
           volumeMounts:
             - name: docker-certs
               mountPath: /certs
             - name: runner-data
               mountPath: /data
+            - name: runner-config
+              mountPath: /config
         - name: daemon
-          image: docker:23.0.6-dind
+          image: docker:28-dind
           env:
             - name: DOCKER_TLS_CERTDIR
               value: /certs
@@ -61,3 +71,5 @@ spec:
           volumeMounts:
             - name: docker-certs
               mountPath: /certs
+            - name: dind-config
+              mountPath: /etc/docker

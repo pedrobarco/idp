@@ -1,0 +1,37 @@
+# Deploys the Gitea Actions runner to the hub (dev) cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: gitea-actions
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - cluster: dev
+            namespace: gitea
+  template:
+    metadata:
+      name: "gitea-actions-{{ .cluster }}"
+      labels:
+        app.kubernetes.io/name: gitea-actions
+        app.kubernetes.io/part-of: idp
+        app.kubernetes.io/cluster: "{{ .cluster }}"
+    spec:
+      project: default
+      source:
+        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+        targetRevision: HEAD
+        path: infrastructure/gitea-actions
+      destination:
+        name: "{{ .cluster }}"
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

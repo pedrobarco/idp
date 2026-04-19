@@ -39,4 +39,11 @@ if [[ -f "${TF_DIR}/clusters/terraform.tfstate" ]]; then
   terraform -chdir="${TF_DIR}/clusters" destroy -auto-approve -input=false
 fi
 
+# ---------- Clean generated secret env files ----------------------------------
+CLUSTER_SECRETS_DIR="${REPO_ROOT}/bootstrap/dev/cluster-secrets/secrets"
+if [[ -d "${CLUSTER_SECRETS_DIR}" ]]; then
+  log "Removing generated cluster secret env files…"
+  rm -rf "${CLUSTER_SECRETS_DIR}"
+fi
+
 log "Teardown complete."

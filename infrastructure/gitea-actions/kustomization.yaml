@@ -5,3 +5,15 @@ namespace: gitea
 
 resources:
   - deployment.yaml
+
+configMapGenerator:
+  - name: gitea-actions-runner-config
+    files:
+      - config.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: gitea-actions-dind-config
+    files:
+      - daemon.json
+    options:
+      disableNameSuffixHash: true

@@ -5,7 +5,16 @@ on:
     branches: [main]
 
 jobs:
-  build:
-    uses: admin/idp/.gitea/workflows/build-and-push.yaml@main
-    with:
-      repository: hello-app
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and push
+        env:
+          REGISTRY: kind-registry:5000
+          REPOSITORY: hello-app
+        run: |
+          TAG=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          IMAGE="${REGISTRY}/${REPOSITORY}:${TAG}"
+          docker build -t "${IMAGE}" .
+          docker push "${IMAGE}"
