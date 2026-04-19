@@ -7,26 +7,20 @@ on:
         description: "Registry host"
         type: string
         default: "kind-registry:5000"
-      repository:
-        description: "Image repository name"
-        type: string
-        required: true
-      tag:
-        description: "Image tag"
-        type: string
-        default: ""
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: admin/idp
+          path: .idp
       - name: Build and push
         run: |
-          TAG="${{ inputs.tag }}"
-          if [ -z "${TAG}" ]; then
-            TAG=$(echo "${{ gitea.sha }}" | cut -c1-7)
-          fi
-          IMAGE="${{ inputs.registry }}/${{ inputs.repository }}:${TAG}"
-          docker build -t "${IMAGE}" .
-          docker push "${IMAGE}"
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          .idp/scripts/build.sh \
+            --registry "${{ inputs.registry }}" \
+            --repo "${REPO_NAME}" \
+            --context .

@@ -40,10 +40,11 @@ if [[ -f "${TF_DIR}/clusters/terraform.tfstate" ]]; then
 fi
 
 # ---------- Clean generated secret env files ----------------------------------
-CLUSTER_SECRETS_DIR="${REPO_ROOT}/bootstrap/dev/cluster-secrets/secrets"
-if [[ -d "${CLUSTER_SECRETS_DIR}" ]]; then
-  log "Removing generated cluster secret env files…"
-  find "${CLUSTER_SECRETS_DIR}" -name '*.env' ! -name '*.env.example' -delete
-fi
+log "Removing generated secret env files…"
+for dir in \
+  "${REPO_ROOT}/bootstrap/dev/cluster-secrets/secrets" \
+  "${REPO_ROOT}/infrastructure/gitea/secrets"; do
+  [[ -d "${dir}" ]] && find "${dir}" -name '*.env' ! -name '*.env.example' -delete
+done
 
 log "Teardown complete."

@@ -6,6 +6,13 @@ namespace: gitea
 resources:
   - namespace.yaml
 
+secretGenerator:
+  - name: gitea-actions-runner-token
+    envs:
+      - secrets/runner-token.env
+    options:
+      disableNameSuffixHash: true
+
 helmCharts:
   - name: gitea
     repo: https://dl.gitea.com/charts/
@@ -14,6 +21,13 @@ helmCharts:
     namespace: gitea
     includeCRDs: true
     valuesInline:
+      deployment:
+        env:
+          - name: GITEA_RUNNER_REGISTRATION_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: gitea-actions-runner-token
+                key: token
       gitea:
         admin:
           username: admin
