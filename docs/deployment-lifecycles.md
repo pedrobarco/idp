@@ -14,7 +14,7 @@ A new version of application code is built and pushed to the container registry.
 
 **Path:** dev → qa → staging → prod1 + prod2 (sequential)
 
-**Trigger:** Argo CD Image Updater detects a new tag in the registry and commits the updated tag to the dev cluster overlay. Argo Rollouts verifies at each stage before promoting to the next environment. See [progressive-delivery.md](progressive-delivery.md) for the full specification.
+**Trigger:** Kargo Warehouse detects a new tag in the registry and creates a Freight. Kargo promotes the Freight through each Stage (environment), where Argo Rollouts verifies the deployment before Kargo promotes to the next. See [progressive-delivery.md](progressive-delivery.md) for the full specification.
 
 ### 2. Environment-scoped configuration
 
@@ -32,7 +32,7 @@ Changes to environment variables, secrets, feature flags, or ingress rules that 
 
 **Path:** dev → qa → staging → prod1 + prod2 (same as image updates)
 
-**Trigger:** The change is committed to the dev cluster overlay first. It follows the same promotion chain as an image update — Argo Rollouts runs analysis at each stage. Promotion to the next environment happens only after verification passes.
+**Trigger:** The change is committed to the dev cluster overlay first. Kargo Warehouse detects the git commit and creates a Freight. The Freight follows the same promotion chain as an image update — Argo Rollouts runs analysis at each stage. Promotion to the next environment happens only after Kargo verification passes.
 
 This ensures that a bad config change is caught in dev before it reaches production, just like a bad code change would be.
 
@@ -47,7 +47,7 @@ For non-production environments (dev, qa), multi-environment commits are accepta
 For production environments (staging, prod1, prod2), multi-environment commits must be avoided. A commit that touches prod1 and prod2 simultaneously would deploy to both at once with no sequential gate between them. Instead:
 
 - Split the change into per-environment commits, each promoted through the chain, or
-- Use a promotion workflow that applies the change to one environment at a time.
+- Use Kargo Stages to apply the change to one environment at a time.
 
 This can be enforced through CI checks that reject PRs touching multiple production overlays.
 
@@ -65,9 +65,9 @@ The exception is coupled applications that must be deployed together (e.g. an AP
 
 | Change type                 | Promotion chain         | Gate                   | Automation                 |
 | --------------------------- | ----------------------- | ---------------------- | -------------------------- |
-| New image                   | Full (dev → prod)       | Analysis at each stage | Image Updater triggers dev |
-| Env-scoped config           | None (direct to target) | PR review              | ArgoCD sync                |
-| Behavior-affecting config   | Full (dev → prod)       | Analysis at each stage | Manual commit to dev       |
+| New image                   | Full (dev → prod)       | Analysis at each stage | Kargo Warehouse triggers dev |
+| Env-scoped config           | None (direct to target) | PR review              | ArgoCD sync                  |
+| Behavior-affecting config   | Full (dev → prod)       | Analysis at each stage | Kargo Warehouse detects git commit |
 | Multi-env commit (non-prod) | Per-env (parallel)      | Per-env analysis       | ArgoCD sync                |
 | Multi-env commit (prod)     | Rejected — must split   | PR policy              | CI enforcement             |
 | Multi-app commit            | Per-app (parallel)      | Per-app analysis       | ArgoCD sync                |
