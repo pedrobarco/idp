@@ -11,4 +11,5 @@ resource "gitea_repository" "this" {
   name           = var.name
   auto_init      = var.auto_init
   default_branch = var.default_branch
+  private        = var.private
 }

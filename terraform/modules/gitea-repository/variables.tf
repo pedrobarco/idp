@@ -19,3 +19,9 @@ variable "default_branch" {
   type        = string
   default     = "main"
 }
+
+variable "private" {
+  description = "Whether the repository is private."
+  type        = bool
+  default     = false
+}
