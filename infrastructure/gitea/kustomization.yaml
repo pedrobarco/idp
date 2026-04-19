@@ -20,6 +20,8 @@ helmCharts:
           password: admin
           email: admin@idp.localhost
         config:
+          actions:
+            ENABLED: true
           database:
             DB_TYPE: sqlite3
           server:

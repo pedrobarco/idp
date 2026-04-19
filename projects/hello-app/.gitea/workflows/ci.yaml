@@ -1,0 +1,11 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    uses: admin/idp/.gitea/workflows/build-and-push.yaml@main
+    with:
+      repository: hello-app
