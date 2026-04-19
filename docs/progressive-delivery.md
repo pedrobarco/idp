@@ -74,13 +74,33 @@ The platform uses three workflows:
 | `promote.yaml` | `workflow_dispatch` (from Rollouts notification) | Copies an image tag from one overlay to the next |
 | `projects/<app>/.gitea/workflows/ci.yaml` | Push to main | Calls `build-and-push.yaml` for the project |
 
+### Rollout strategy
+
+All environments use the Argo Rollouts canary strategy. No traffic router is required. The canary steps differ per environment type, but the strategy shape is consistent across the platform.
+
+Every rollout begins by scaling 1 canary replica (or N for QA) and running analysis against it. The canary pod receives a small fraction of traffic proportional to its share of the total pod count (e.g. 1 canary among 10 stable pods ≈ 9% traffic). In non-prod environments this small exposure is acceptable. In prod, the analysis runs at that minimal scale before gradual traffic increase begins.
+
+**Non-prod serving environments (dev, staging):** The rollout scales 1 canary replica, runs analysis, and promotes directly to 100% on success. No gradual traffic shift — fast feedback is the priority.
+
+**Test-only environments (qa):** QA runs at 0 replicas in steady state. The rollout scales the canary to N replicas for performance testing, runs analysis, and scales back to 0 on both success and failure. Both the steady-state replica count (`spec.replicas: 0`) and the temporary scale-up are defined in the same Rollout manifest in git. ArgoCD delivers the manifest, Rollouts executes the steps. No extra commits are needed — git always says 0 and the cluster always converges back to 0.
+
+**Production environments (prod1, prod2):** The rollout scales 1 canary replica, runs analysis, then gradually increases traffic through the canary by scaling replica count (10% → 25% → 50% → 100%) with pauses between steps.
+
+| Environment | Canary replicas | Analysis  | After analysis passes         |
+| ----------- | --------------- | --------- | ----------------------------- |
+| dev         | 1               | e2e       | Promote to 100%               |
+| qa          | N (from 0)      | perf      | Scale to 0                    |
+| staging     | 1               | e2e       | Promote to 100%               |
+| prod1       | 1               | e2e       | 10% → 25% → 50% → 100%      |
+| prod2       | 1               | e2e       | 10% → 25% → 50% → 100%      |
+
 ### Verification
 
 Each environment defines its own AnalysisTemplate that launches a Kubernetes Job to test the live deployment. The Job runs a test container image against the actual service endpoint in that environment.
 
 The same e2e test image is reused across dev, staging, prod1, and prod2 with environment-specific arguments (target URL, thresholds, timeouts). QA uses a separate test image or configuration for performance and deep verification. The test images are built and pushed through the same CI pipeline as application images.
 
-An AnalysisRun succeeds when the test Job exits 0 and fails on any non-zero exit. On failure, Argo Rollouts reverts the canary automatically.
+An AnalysisRun succeeds when the test Job exits 0 and fails on any non-zero exit. On failure, Argo Rollouts aborts the canary automatically.
 
 ### Why Job metrics over CI-triggered tests
 
@@ -121,7 +141,11 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 
 - [ ] Argo Rollouts controller is deployed to every cluster.
 - [ ] Application workloads use Rollout resources instead of Deployments.
+- [ ] All environments use the canary strategy with no traffic router.
 - [ ] Every deployment to every environment triggers an AnalysisRun before promotion.
+- [ ] Non-prod serving environments (dev, staging) promote to 100% immediately after analysis.
+- [ ] Production environments (prod1, prod2) gradually increase traffic (10% → 25% → 50% → 100%) after analysis.
+- [ ] QA scales from 0 to N canary replicas for testing and converges back to 0 on both success and failure.
 - [ ] Failed analysis aborts the Rollout and keeps the old stable version serving traffic.
 - [ ] Failed analysis sends a notification to alert the team.
 - [ ] Failed analysis in any environment prevents promotion to the next environment.

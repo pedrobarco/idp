@@ -63,14 +63,14 @@ The exception is coupled applications that must be deployed together (e.g. an AP
 
 ## Summary
 
-| Change type | Promotion chain | Gate | Automation |
-|---|---|---|---|
-| New image | Full (dev → prod) | Analysis at each stage | Image Updater triggers dev |
-| Env-scoped config | None (direct to target) | PR review | ArgoCD sync |
-| Behavior-affecting config | Full (dev → prod) | Analysis at each stage | Manual commit to dev |
-| Multi-env commit (non-prod) | Per-env (parallel) | Per-env analysis | ArgoCD sync |
-| Multi-env commit (prod) | Rejected — must split | PR policy | CI enforcement |
-| Multi-app commit | Per-app (parallel) | Per-app analysis | ArgoCD sync |
+| Change type                 | Promotion chain         | Gate                   | Automation                 |
+| --------------------------- | ----------------------- | ---------------------- | -------------------------- |
+| New image                   | Full (dev → prod)       | Analysis at each stage | Image Updater triggers dev |
+| Env-scoped config           | None (direct to target) | PR review              | ArgoCD sync                |
+| Behavior-affecting config   | Full (dev → prod)       | Analysis at each stage | Manual commit to dev       |
+| Multi-env commit (non-prod) | Per-env (parallel)      | Per-env analysis       | ArgoCD sync                |
+| Multi-env commit (prod)     | Rejected — must split   | PR policy              | CI enforcement             |
+| Multi-app commit            | Per-app (parallel)      | Per-app analysis       | ArgoCD sync                |
 
 ## Acceptance Criteria
 
