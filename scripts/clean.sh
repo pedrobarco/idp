@@ -43,7 +43,7 @@ fi
 CLUSTER_SECRETS_DIR="${REPO_ROOT}/bootstrap/dev/cluster-secrets/secrets"
 if [[ -d "${CLUSTER_SECRETS_DIR}" ]]; then
   log "Removing generated cluster secret env files…"
-  rm -rf "${CLUSTER_SECRETS_DIR}"
+  find "${CLUSTER_SECRETS_DIR}" -name '*.env' ! -name '*.env.example' -delete
 fi
 
 log "Teardown complete."
