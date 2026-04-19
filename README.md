@@ -19,7 +19,6 @@ graph TB
         subgraph dev["dev cluster :80"]
             ArgoCD
             Gitea
-            GiteaRunner[Gitea Actions Runner]
             nginx_dev[ingress-nginx]
             app_dev[hello-app<br/><i>dev/dev</i>]
         end
@@ -44,8 +43,6 @@ graph TB
     end
 
     Gitea -- "repo sync" --> ArgoCD
-    Gitea -- "triggers" --> GiteaRunner
-    GiteaRunner -- "pushes images" --> registry
     ArgoCD -- "manages" --> app_dev
     ArgoCD -- "manages" --> staging
     ArgoCD -- "manages" --> prod1
@@ -83,8 +80,7 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 │
 ├── infrastructure/         # Shared infra definitions (managed by ArgoCD)
 │   ├── argocd/             # ArgoCD Helm chart
-│   ├── gitea/              # Gitea Helm chart (Actions enabled)
-│   ├── gitea-actions/      # Actions runner Deployment + ConfigMap
+│   ├── gitea/              # Gitea Helm chart
 │   ├── ingress-nginx/      # Ingress controller
 │   ├── argocd-manager/     # Remote cluster SA + RBAC
 │   └── registry/           # Local registry ConfigMap
@@ -97,7 +93,6 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 │
 ├── applicationsets/        # ArgoCD ApplicationSet declarations
 │   ├── applicationsets.yaml  # Root Application (tracks this directory)
-│   ├── gitea-actions.yaml    # Gitea Actions runner
 │   └── hello-app.yaml       # Git directory generator for hello-app
 │
 ├── apps/                   # App base manifests (never applied directly)
@@ -125,7 +120,7 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 2. **Bootstrap** — build images + apply `bootstrap/<cluster>` in parallel
 3. **Wait** — ArgoCD, Gitea, ingress-nginx rollouts
 4. **Credentials** — generate real SA tokens, re-apply cluster secrets
-5. **Gitea setup** — create runner registration token + provision repos via Terraform
+5. **Repos** — provision Gitea repositories via Terraform
 6. **Sync** — push IDP repo + projects to Gitea
 7. **Activate** — apply root Application that tracks `applicationsets/`
 

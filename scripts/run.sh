@@ -122,9 +122,7 @@ log "Re-applying cluster secrets with real credentials…"
 kustomize build "${REPO_ROOT}/bootstrap/dev/cluster-secrets" | \
   kubectl --context "${HUB_CONTEXT}" apply --server-side -f -
 
-# ---------- 5. Gitea setup (runner token + repos) -----------------------------
-# Gitea is now running. Port-forward once and use it for both the runner token
-# and Terraform repository provisioning.
+# ---------- 5. Provision Gitea repos via Terraform ----------------------------
 resolve_gitea || { echo "ERROR: Gitea is not running." >&2; exit 1; }
 
 GITEA_LOCAL_PORT=3000
@@ -133,23 +131,6 @@ PORTFWD_PID=$!
 trap "kill ${PORTFWD_PID} 2>/dev/null || true" EXIT
 sleep 2
 
-# 5a. Create runner registration token secret
-# ArgoCD manages the runner Deployment/ConfigMap; the secret is runtime-generated.
-log "Creating Gitea Actions runner registration token…"
-RUNNER_TOKEN=$(curl -sf \
-  "http://localhost:${GITEA_LOCAL_PORT}/api/v1/admin/runners/registration-token" \
-  -u "${GITEA_ADMIN_USER}:${GITEA_ADMIN_PASS}" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
-
-if [[ -z "${RUNNER_TOKEN}" ]]; then
-  echo "ERROR: Failed to obtain runner registration token." >&2
-  exit 1
-fi
-
-kubectl --context "${HUB_CONTEXT}" -n gitea create secret generic gitea-actions-runner-token \
-  --from-literal=token="${RUNNER_TOKEN}" \
-  --dry-run=client -o yaml | kubectl --context "${HUB_CONTEXT}" apply -f -
-
-# 5b. Provision Gitea repositories via Terraform
 log "Provisioning Gitea repositories…"
 [[ -d "${TF_DIR}/repositories/.terraform" ]] || terraform -chdir="${TF_DIR}/repositories" init -input=false
 terraform -chdir="${TF_DIR}/repositories" apply -auto-approve -input=false \
