@@ -19,6 +19,7 @@ graph TB
         subgraph dev["dev cluster :80"]
             ArgoCD
             Gitea
+            GiteaRunner[Gitea Actions Runner]
             nginx_dev[ingress-nginx]
             app_dev[hello-app<br/><i>dev/dev</i>]
         end
@@ -43,6 +44,8 @@ graph TB
     end
 
     Gitea -- "repo sync" --> ArgoCD
+    Gitea -- "triggers" --> GiteaRunner
+    GiteaRunner -- "pushes images" --> registry
     ArgoCD -- "manages" --> app_dev
     ArgoCD -- "manages" --> staging
     ArgoCD -- "manages" --> prod1
@@ -65,15 +68,23 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 ```
 .
 ├── scripts/                # Operational scripts
-│   ├── run.sh              # Full setup (clusters → bootstrap → GitOps)
-│   ├── clean.sh            # Full teardown
+│   ├── run.sh              # Full setup (terraform → bootstrap → GitOps)
+│   ├── clean.sh            # Full teardown (terraform destroy)
 │   ├── status.sh           # Platform status
 │   ├── sync-projects.sh    # Push repos to Gitea
 │   └── utils.sh            # Shared config and helpers
 │
-├── infrastructure/         # Shared infra definitions (never applied directly)
+├── terraform/              # Infrastructure as code
+│   ├── clusters/           # Root module: Docker network, registry, Kind clusters
+│   ├── repositories/       # Root module: Gitea repositories
+│   └── modules/            # Reusable modules
+│       ├── kind-cluster/   # Single Kind cluster + containerd registry config
+│       └── gitea-repository/ # Single Gitea repository
+│
+├── infrastructure/         # Shared infra definitions (managed by ArgoCD)
 │   ├── argocd/             # ArgoCD Helm chart
-│   ├── gitea/              # Gitea Helm chart
+│   ├── gitea/              # Gitea Helm chart (Actions enabled)
+│   ├── gitea-actions/      # Actions runner Deployment + ConfigMap
 │   ├── ingress-nginx/      # Ingress controller
 │   ├── argocd-manager/     # Remote cluster SA + RBAC
 │   └── registry/           # Local registry ConfigMap
@@ -86,6 +97,7 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 │
 ├── applicationsets/        # ArgoCD ApplicationSet declarations
 │   ├── applicationsets.yaml  # Root Application (tracks this directory)
+│   ├── gitea-actions.yaml    # Gitea Actions runner
 │   └── hello-app.yaml       # Git directory generator for hello-app
 │
 ├── apps/                   # App base manifests (never applied directly)
@@ -101,7 +113,6 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 ├── projects/               # Application source code
 │   └── hello-app/          # Go app + Dockerfile + CI script
 │
-├── kind/                   # Kind cluster configs
 └── Makefile
 ```
 
@@ -109,12 +120,14 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 
 ### Setup Flow (`make run`)
 
-1. **Create clusters** — 4 kind clusters in parallel
+0. **Terraform** — provision Docker network, registry, and 4 Kind clusters
+1. **Placeholders** — generate `.env` files with placeholder cluster credentials
 2. **Bootstrap** — build images + apply `bootstrap/<cluster>` in parallel
 3. **Wait** — ArgoCD, Gitea, ingress-nginx rollouts
-4. **Credentials** — generate SA tokens, patch cluster secrets
-5. **Sync** — push IDP repo + projects to Gitea
-6. **Activate** — apply root Application that tracks `applicationsets/`
+4. **Credentials** — generate real SA tokens, re-apply cluster secrets
+5. **Gitea setup** — create runner registration token + provision repos via Terraform
+6. **Sync** — push IDP repo + projects to Gitea
+7. **Activate** — apply root Application that tracks `applicationsets/`
 
 ### GitOps Loop
 
@@ -142,8 +155,8 @@ Each matching directory becomes an ArgoCD Application. The kustomization referen
 
 | Command       | Description                         |
 | ------------- | ----------------------------------- |
-| `make run`    | Create clusters and activate GitOps |
-| `make clean`  | Destroy all clusters                |
+| `make run`    | Provision infrastructure and activate GitOps |
+| `make clean`  | Destroy all infrastructure (terraform destroy) |
 | `make sync`   | Push repos to Gitea                 |
 | `make status` | Show platform status                |
 | `make help`   | List all targets                    |
@@ -155,4 +168,5 @@ Each matching directory becomes an ArgoCD Application. The kustomization referen
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 - [kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/)
 - [helm](https://helm.sh/docs/intro/install/)
+- [terraform](https://developer.hashicorp.com/terraform/install)
 - curl, git
