@@ -4,14 +4,17 @@
 #
 # Syncs the IDP repository and local projects/*/ with Gitea.
 #   1. Pushes the full IDP repo to Gitea (used by ArgoCD for GitOps)
-#   2. Creates and pushes each projects/*/ as a separate repo
+#   2. Pushes each projects/*/ as a separate repo
+#
+# Note: Repos are created by Terraform (terraform/repositories).
+# This script only pushes content.
 #
 # Usage:
 #   ./scripts/sync-projects.sh
 #
 # Configuration is loaded from scripts/utils.sh
 #
-# Prerequisites: curl, git, rsync
+# Prerequisites: git, rsync
 #
 set -euo pipefail
 
@@ -21,15 +24,6 @@ source "${SCRIPT_DIR}/utils.sh"
 resolve_gitea || { echo "ERROR: Gitea is not running." >&2; exit 1; }
 
 PROJECTS_DIR="${REPO_ROOT}/projects"
-
-create_repo() {
-  local name="$1"
-  curl -sf -X POST "${GITEA_URL}/api/v1/user/repos" \
-    -u "${GITEA_AUTH}" \
-    -H "Content-Type: application/json" \
-    -d "{\"name\":\"${name}\",\"auto_init\":true,\"default_branch\":\"main\"}" \
-    2>/dev/null || true
-}
 
 push_dir() {
   local name="$1" src="$2"
@@ -50,7 +44,6 @@ push_dir() {
 
 # ── 1. Sync the IDP repo (used by ArgoCD bootstrap + ApplicationSet) ────────
 log "Syncing IDP repo…"
-create_repo "idp"
 push_dir "idp" "${REPO_ROOT}"
 log "idp ✓"
 echo
@@ -60,7 +53,6 @@ for project_path in "${PROJECTS_DIR}"/*/; do
   [[ -d "${project_path}" ]] || continue
   project="$(basename "${project_path}")"
   log "Syncing ${project}…"
-  create_repo "${project}"
   push_dir "${project}" "${project_path}"
   log "${project} ✓"
   echo

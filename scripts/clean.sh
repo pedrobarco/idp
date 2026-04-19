@@ -2,10 +2,7 @@
 #
 # clean.sh
 #
-# Tears down the entire IDP local environment:
-#   - Deletes all kind clusters
-#   - Removes the local Docker registry
-#   - Cleans up the Docker network
+# Tears down the entire IDP local environment using Terraform.
 #
 # Usage:
 #   ./scripts/clean.sh
@@ -16,31 +13,30 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=utils.sh
 source "${SCRIPT_DIR}/utils.sh"
 
-# ---------- Delete kind clusters (parallel) ----------------------------------
-PIDS=()
-for c in "${CLUSTERS[@]}"; do
-  if cluster_exists "${c}"; then
-    log "Deleting cluster '${c}'…"
-    kind delete cluster --name "${c}" &
-    PIDS+=($!)
-  else
-    log "Cluster '${c}' does not exist — skipping."
-  fi
-done
-for pid in "${PIDS[@]}"; do wait "${pid}"; done
+TF_DIR="${REPO_ROOT}/terraform"
 
-# ---------- Remove local registry -------------------------------------------
-if docker inspect "${REG_NAME}" &>/dev/null; then
-  log "Removing registry '${REG_NAME}'…"
-  docker rm -f "${REG_NAME}"
-else
-  log "Registry '${REG_NAME}' does not exist — skipping."
+# ---------- Destroy Gitea repositories (best effort) -------------------------
+if [[ -f "${TF_DIR}/repositories/terraform.tfstate" ]]; then
+  log "Destroying Gitea repositories…"
+  if resolve_gitea; then
+    GITEA_LOCAL_PORT=3000
+    kubectl --context "${HUB_CONTEXT}" -n gitea port-forward svc/gitea-http "${GITEA_LOCAL_PORT}:3000" &
+    PORTFWD_PID=$!
+    sleep 2
+    [[ -d "${TF_DIR}/repositories/.terraform" ]] || terraform -chdir="${TF_DIR}/repositories" init -input=false
+    terraform -chdir="${TF_DIR}/repositories" destroy -auto-approve -input=false \
+      -var "gitea_url=http://localhost:${GITEA_LOCAL_PORT}" \
+      -var "gitea_username=${GITEA_ADMIN_USER}" \
+      -var "gitea_password=${GITEA_ADMIN_PASS}" || true
+    kill "${PORTFWD_PID}" 2>/dev/null || true
+  fi
 fi
 
-# ---------- Clean up Docker network -----------------------------------------
-if docker network inspect kind &>/dev/null; then
-  log "Removing Docker network 'kind'…"
-  docker network rm kind 2>/dev/null || true
+# ---------- Destroy clusters + registry via Terraform -------------------------
+if [[ -f "${TF_DIR}/clusters/terraform.tfstate" ]]; then
+  log "Destroying clusters and registry…"
+  [[ -d "${TF_DIR}/clusters/.terraform" ]] || terraform -chdir="${TF_DIR}/clusters" init -input=false
+  terraform -chdir="${TF_DIR}/clusters" destroy -auto-approve -input=false
 fi
 
 log "Teardown complete."

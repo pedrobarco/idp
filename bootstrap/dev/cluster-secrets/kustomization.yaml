@@ -1,8 +1,34 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-resources:
-  - dev.yaml
-  - staging.yaml
-  - prod-1.yaml
-  - prod-2.yaml
+namespace: argocd
+
+secretGenerator:
+  - name: cluster-dev
+    envs:
+      - secrets/dev.env
+    options:
+      disableNameSuffixHash: true
+      labels:
+        argocd.argoproj.io/secret-type: cluster
+  - name: cluster-staging
+    envs:
+      - secrets/staging.env
+    options:
+      disableNameSuffixHash: true
+      labels:
+        argocd.argoproj.io/secret-type: cluster
+  - name: cluster-prod-1
+    envs:
+      - secrets/prod-1.env
+    options:
+      disableNameSuffixHash: true
+      labels:
+        argocd.argoproj.io/secret-type: cluster
+  - name: cluster-prod-2
+    envs:
+      - secrets/prod-2.env
+    options:
+      disableNameSuffixHash: true
+      labels:
+        argocd.argoproj.io/secret-type: cluster

@@ -4,7 +4,7 @@
 #
 # Creates kind clusters, bootstraps infrastructure, and activates GitOps.
 #
-# Prerequisites: kind, kubectl, kustomize, helm, docker, curl, git
+# Prerequisites: kind, kubectl, kustomize, helm, docker, curl, git, terraform
 #
 set -euo pipefail
 
@@ -12,10 +12,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=utils.sh
 source "${SCRIPT_DIR}/utils.sh"
 
-KIND_DIR="${REPO_ROOT}/kind"
+TF_DIR="${REPO_ROOT}/terraform"
 
 # ---------- check prerequisites ---------------------------------------------
-REQUIRED_TOOLS=(kind kubectl kustomize helm docker curl git)
+REQUIRED_TOOLS=(kind kubectl kustomize helm docker curl git terraform)
 missing=()
 for tool in "${REQUIRED_TOOLS[@]}"; do
   if ! command -v "${tool}" &>/dev/null; then
@@ -35,48 +35,29 @@ if ! docker info &>/dev/null; then
   exit 1
 fi
 
-# ---------- 0. Local Docker registry -----------------------------------------
+# ---------- 0. Provision registry + Kind clusters via Terraform ---------------
+log "Provisioning registry and Kind clusters…"
+[[ -d "${TF_DIR}/clusters/.terraform" ]] || terraform -chdir="${TF_DIR}/clusters" init -input=false
+terraform -chdir="${TF_DIR}/clusters" apply -auto-approve -input=false
 
-if docker inspect "${REG_NAME}" &>/dev/null; then
-  log "Registry '${REG_NAME}' already exists — ensuring it is running."
-  docker start "${REG_NAME}" 2>/dev/null || true
-else
-  log "Creating local registry '${REG_NAME}' on host port ${REG_PORT}…"
-  docker run -d --restart=always \
-    -p "127.0.0.1:${REG_PORT}:${REG_INTERNAL_PORT}" \
-    --name "${REG_NAME}" registry:2
-fi
+# ---------- 1. Generate placeholder secret env files --------------------------
+# The argocd-manager SA doesn't exist until after bootstrap, so we write
+# placeholder env files first so kustomize secretGenerator can build.
+# Real credentials are patched in step 4.
+CLUSTER_SECRETS_DIR="${REPO_ROOT}/bootstrap/dev/cluster-secrets/secrets"
+mkdir -p "${CLUSTER_SECRETS_DIR}"
 
-# ---------- 1. Create clusters (parallel) ------------------------------------
-create_cluster() {
-  local c="$1"
-  if cluster_exists "${c}"; then
-    log "Cluster '${c}' already exists — skipping."
-  else
-    log "Creating cluster '${c}'…"
-    kind create cluster --config "${KIND_DIR}/${c}.yaml"
-  fi
-  # Connect to shared Docker network
-  docker network connect kind "${c}-control-plane" 2>/dev/null || true
-  # Configure containerd to use the local registry
-  for node in $(kind get nodes --name "${c}" 2>/dev/null); do
-    docker exec "${node}" mkdir -p "/etc/containerd/certs.d/localhost:${REG_PORT}"
-    cat <<TOML | docker exec -i "${node}" cp /dev/stdin "/etc/containerd/certs.d/localhost:${REG_PORT}/hosts.toml"
-[host."http://${REG_NAME}:${REG_INTERNAL_PORT}"]
-TOML
-  done
-}
-
-PIDS=()
 for c in "${CLUSTERS[@]}"; do
-  create_cluster "${c}" &
-  PIDS+=($!)
+  local_server="https://${c}-control-plane:6443"
+  [[ "${c}" == "${HUB_CLUSTER}" ]] && local_server="https://kubernetes.default.svc"
+  cat > "${CLUSTER_SECRETS_DIR}/${c}.env" <<ENV
+name=${c}
+server=${local_server}
+config={}
+ENV
 done
-for pid in "${PIDS[@]}"; do wait "${pid}"; done
 
-docker network connect kind "${REG_NAME}" 2>/dev/null || true
-
-# ---------- 2. Build images + bootstrap all clusters (parallel) --------------
+# ---------- 2. Build images + bootstrap all clusters (parallel) ---------------
 log "Building images and bootstrapping clusters…"
 
 BUILD_PIDS=()
@@ -98,7 +79,7 @@ done
 for pid in "${PIDS[@]}"; do wait "${pid}"; done
 for pid in "${BUILD_PIDS[@]}"; do wait "${pid}"; done
 
-# ---------- 3. Wait for infrastructure (parallel) ---------------------------
+# ---------- 3. Wait for infrastructure (parallel) ----------------------------
 wait_for_rollout "${HUB_CONTEXT}" argocd argocd-server &
 wait_for_rollout "${HUB_CONTEXT}" gitea gitea &
 for c in "${CLUSTERS[@]}"; do
@@ -106,36 +87,84 @@ for c in "${CLUSTERS[@]}"; do
 done
 wait
 
-# ---------- 4. Patch cluster secrets with real credentials (parallel) --------
-# argocd-manager SA now exists on each remote cluster. Generate tokens and
-# patch the cluster secrets so ArgoCD can authenticate.
-patch_cluster_secret() {
+# ---------- 4. Populate real cluster credentials (parallel) -------------------
+# argocd-manager SA now exists. Regenerate env files with real tokens,
+# then re-apply the cluster secrets.
+generate_cluster_env() {
   local c="$1" remote_ctx="kind-${c}"
-  log "Patching credentials for cluster '${c}'…"
+  log "Generating credentials for cluster '${c}'…"
 
-  local token ca_data
+  local server="https://${c}-control-plane:6443"
+  local token ca_data config
   token=$(kubectl --context "${remote_ctx}" -n kube-system \
     create token argocd-manager --duration=87600h)
   ca_data=$(kubectl --context "${remote_ctx}" config view --raw \
     -o jsonpath="{.clusters[?(@.name==\"kind-${c}\")].cluster.certificate-authority-data}")
 
-  kubectl --context "${HUB_CONTEXT}" -n argocd patch secret "cluster-${c}" \
-    -p "{\"stringData\":{\"config\":\"{\\\"bearerToken\\\":\\\"${token}\\\",\\\"tlsClientConfig\\\":{\\\"insecure\\\":false,\\\"caData\\\":\\\"${ca_data}\\\"}}\" }}"
+  config="{\"bearerToken\":\"${token}\",\"tlsClientConfig\":{\"insecure\":false,\"caData\":\"${ca_data}\"}}"
+
+  cat > "${CLUSTER_SECRETS_DIR}/${c}.env" <<ENV
+name=${c}
+server=${server}
+config=${config}
+ENV
 }
 
 PIDS=()
 for c in "${CLUSTERS[@]}"; do
   [[ "${c}" == "${HUB_CLUSTER}" ]] && continue
-  patch_cluster_secret "${c}" &
+  generate_cluster_env "${c}" &
   PIDS+=($!)
 done
 for pid in "${PIDS[@]}"; do wait "${pid}"; done
 
-# ---------- 5. Sync repos to Gitea -------------------------------------------
-log "Syncing projects to Gitea…"
+log "Re-applying cluster secrets with real credentials…"
+kustomize build "${REPO_ROOT}/bootstrap/dev/cluster-secrets" | \
+  kubectl --context "${HUB_CONTEXT}" apply --server-side -f -
+
+# ---------- 5. Gitea setup (runner token + repos) -----------------------------
+# Gitea is now running. Port-forward once and use it for both the runner token
+# and Terraform repository provisioning.
+resolve_gitea || { echo "ERROR: Gitea is not running." >&2; exit 1; }
+
+GITEA_LOCAL_PORT=3000
+kubectl --context "${HUB_CONTEXT}" -n gitea port-forward svc/gitea-http "${GITEA_LOCAL_PORT}:3000" &
+PORTFWD_PID=$!
+trap "kill ${PORTFWD_PID} 2>/dev/null || true" EXIT
+sleep 2
+
+# 5a. Create runner registration token secret
+# ArgoCD manages the runner Deployment/ConfigMap; the secret is runtime-generated.
+log "Creating Gitea Actions runner registration token…"
+RUNNER_TOKEN=$(curl -sf \
+  "http://localhost:${GITEA_LOCAL_PORT}/api/v1/admin/runners/registration-token" \
+  -u "${GITEA_ADMIN_USER}:${GITEA_ADMIN_PASS}" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+
+if [[ -z "${RUNNER_TOKEN}" ]]; then
+  echo "ERROR: Failed to obtain runner registration token." >&2
+  exit 1
+fi
+
+kubectl --context "${HUB_CONTEXT}" -n gitea create secret generic gitea-actions-runner-token \
+  --from-literal=token="${RUNNER_TOKEN}" \
+  --dry-run=client -o yaml | kubectl --context "${HUB_CONTEXT}" apply -f -
+
+# 5b. Provision Gitea repositories via Terraform
+log "Provisioning Gitea repositories…"
+[[ -d "${TF_DIR}/repositories/.terraform" ]] || terraform -chdir="${TF_DIR}/repositories" init -input=false
+terraform -chdir="${TF_DIR}/repositories" apply -auto-approve -input=false \
+  -var "gitea_url=http://localhost:${GITEA_LOCAL_PORT}" \
+  -var "gitea_username=${GITEA_ADMIN_USER}" \
+  -var "gitea_password=${GITEA_ADMIN_PASS}"
+
+kill "${PORTFWD_PID}" 2>/dev/null || true
+trap - EXIT
+
+# ---------- 6. Push content to Gitea repos ------------------------------------
+log "Syncing project content to Gitea…"
 "${SCRIPT_DIR}/sync-projects.sh"
 
-# ---------- 6. Activate GitOps -----------------------------------------------
+# ---------- 7. Activate GitOps -----------------------------------------------
 # Apply the root Application that tracks applicationsets/.
 # ArgoCD will auto-discover and apply all ApplicationSets in that directory.
 log "Applying root applicationsets Application…"
