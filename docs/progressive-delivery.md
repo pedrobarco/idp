@@ -76,23 +76,23 @@ The platform uses three workflows:
 
 ### Rollout strategy
 
-All environments use the Argo Rollouts canary strategy. No traffic router is required. The canary steps differ per environment type, but the strategy shape is consistent across the platform.
+Non-prod and prod environments use different Argo Rollouts strategies. No traffic router is required in any environment.
 
-Every rollout begins by scaling 1 canary replica (or N for QA) and running analysis against it. The canary pod receives a small fraction of traffic proportional to its share of the total pod count (e.g. 1 canary among 10 stable pods ≈ 9% traffic). In non-prod environments this small exposure is acceptable. In prod, the analysis runs at that minimal scale before gradual traffic increase begins.
+**Non-prod (dev, qa, staging) — Blue-green.** The rollout creates a separate preview ReplicaSet and points a preview Service at it. No real traffic reaches the new version during analysis. The analysis Job targets the preview Service directly. On success, the active Service switches to the new version. On failure, the preview is scaled down and the active version continues serving.
 
-**Non-prod serving environments (dev, staging):** The rollout scales 1 canary replica, runs analysis, and promotes directly to 100% on success. No gradual traffic shift — fast feedback is the priority.
+For dev and staging, `previewReplicaCount` is 1 — a single preview pod is sufficient for e2e testing. For QA, `previewReplicaCount` is N — multiple pods are needed for performance testing. QA runs at 0 replicas in steady state (`spec.replicas: 0`). The preview temporarily scales to N for testing and returns to 0 on both success and failure. Both the steady-state replica count and the preview replica count are defined in the same Rollout manifest in git. No extra commits are needed to manage the replica lifecycle.
 
-**Test-only environments (qa):** QA runs at 0 replicas in steady state. The rollout scales the canary to N replicas for performance testing, runs analysis, and scales back to 0 on both success and failure. Both the steady-state replica count (`spec.replicas: 0`) and the temporary scale-up are defined in the same Rollout manifest in git. ArgoCD delivers the manifest, Rollouts executes the steps. No extra commits are needed — git always says 0 and the cluster always converges back to 0.
+**Prod (prod1, prod2) — Canary.** The rollout scales 1 canary replica, which receives a small fraction of real traffic proportional to its share of the total pod count (e.g. 1 canary among 10 stable pods ≈ 9% traffic). Analysis runs at that scale. On success, traffic gradually increases (10% → 25% → 50% → 100%) with pauses between steps. On failure, the canary is killed and the stable version keeps serving.
 
-**Production environments (prod1, prod2):** The rollout scales 1 canary replica, runs analysis, then gradually increases traffic through the canary by scaling replica count (10% → 25% → 50% → 100%) with pauses between steps.
+The version has already passed e2e in dev, performance tests in QA, and e2e in staging before reaching prod. The small initial traffic exposure during prod analysis is acceptable given this prior verification.
 
-| Environment | Canary replicas | Analysis  | After analysis passes         |
-| ----------- | --------------- | --------- | ----------------------------- |
-| dev         | 1               | e2e       | Promote to 100%               |
-| qa          | N (from 0)      | perf      | Scale to 0                    |
-| staging     | 1               | e2e       | Promote to 100%               |
-| prod1       | 1               | e2e       | 10% → 25% → 50% → 100%      |
-| prod2       | 1               | e2e       | 10% → 25% → 50% → 100%      |
+| Environment | Strategy   | Preview/Canary replicas | Analysis | After analysis passes          |
+| ----------- | ---------- | ----------------------- | -------- | ------------------------------ |
+| dev         | blue-green | 1 (preview)             | e2e      | Full switch                    |
+| qa          | blue-green | N (preview, from 0)     | perf     | Scale to 0                     |
+| staging     | blue-green | 1 (preview)             | e2e      | Full switch                    |
+| prod1       | canary     | 1 (canary)              | e2e      | 10% → 25% → 50% → 100%       |
+| prod2       | canary     | 1 (canary)              | e2e      | 10% → 25% → 50% → 100%       |
 
 ### Verification
 
@@ -141,11 +141,11 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 
 - [ ] Argo Rollouts controller is deployed to every cluster.
 - [ ] Application workloads use Rollout resources instead of Deployments.
-- [ ] All environments use the canary strategy with no traffic router.
+- [ ] No traffic router is required in any environment.
 - [ ] Every deployment to every environment triggers an AnalysisRun before promotion.
-- [ ] Non-prod serving environments (dev, staging) promote to 100% immediately after analysis.
-- [ ] Production environments (prod1, prod2) gradually increase traffic (10% → 25% → 50% → 100%) after analysis.
-- [ ] QA scales from 0 to N canary replicas for testing and converges back to 0 on both success and failure.
+- [ ] Non-prod environments (dev, qa, staging) use blue-green with prePromotionAnalysis against the preview Service.
+- [ ] Production environments (prod1, prod2) use canary with gradual traffic increase (10% → 25% → 50% → 100%).
+- [ ] QA scales from 0 to N preview replicas for testing and converges back to 0 on both success and failure.
 - [ ] Failed analysis aborts the Rollout and keeps the old stable version serving traffic.
 - [ ] Failed analysis sends a notification to alert the team.
 - [ ] Failed analysis in any environment prevents promotion to the next environment.
