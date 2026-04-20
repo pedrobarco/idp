@@ -1,6 +1,10 @@
-# IDP — Internal Developer Platform
-
-A local multi-cluster GitOps platform running on [kind](https://kind.sigs.k8s.io/), managed by [ArgoCD](https://argo-cd.readthedocs.io/).
+<p align="center">
+  <img src="docs/assets/logo.png" alt="IDP Logo" width="420">
+  <br><br>
+  <strong style="font-size:1.5em;">IDP — Internal Developer Platform</strong>
+  <br>
+  <em>A local multi-cluster GitOps platform running on <a href="https://kind.sigs.k8s.io/">kind</a>, managed by <a href="https://argo-cd.readthedocs.io/">ArgoCD</a>.</em>
+</p>
 
 ## Quick Start
 
