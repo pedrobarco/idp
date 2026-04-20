@@ -8,17 +8,53 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=utils.sh
 source "${SCRIPT_DIR}/utils.sh"
 
-COL="%-28s %-10s %s\n"
-section() { printf "\n\033[1m%s\033[0m\n" "$1"; }
-row()     { printf "  ${COL}" "$1" "$2" "$3"; }
+# ---------- Formatting -------------------------------------------------------
+RESET="\033[0m"
+BOLD="\033[1m"
+DIM="\033[2m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+RED="\033[31m"
 
-# helper: get host port for a cluster
+COL="  %-40s %-18s %-42s %s\n"
+
+header() {
+  printf "${DIM}  %-40s %-18s %-42s %s${RESET}\n" "NAME" "STATUS" "URL" "CREDENTIALS"
+  printf "${DIM}  %-40s %-18s %-42s %s${RESET}\n" \
+    "────────────────────────────────────────" \
+    "──────────────────" \
+    "──────────────────────────────────────────" \
+    "────────────────────"
+}
+
+section() {
+  printf "\n  ${BOLD}%s${RESET}\n" "$1"
+}
+
+color_status() {
+  local status="$1"
+  case "${status}" in
+    Synced/Healthy|Healthy)  printf "${GREEN}%s${RESET}" "${status}" ;;
+    *Progressing*|*Unknown*) printf "${YELLOW}%s${RESET}" "${status}" ;;
+    *)                       printf "${RED}%s${RESET}" "${status}" ;;
+  esac
+}
+
+row() {
+  local name="$1" status="$2" url="${3:--}" creds="${4:--}"
+  local colored
+  colored=$(color_status "${status}")
+  # color_status adds ANSI codes; pad manually to account for invisible chars
+  local pad=$(( 18 - ${#status} ))
+  printf "  %-40s %s%${pad}s %-42s %s\n" "${name}" "${colored}" "" "${url}" "${creds}"
+}
+
+# ---------- Helpers -----------------------------------------------------------
 cluster_port() {
   docker inspect "${1}-control-plane" \
     --format '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostPort}}' 2>/dev/null || echo "?"
 }
 
-# helper: get ingress URL for a namespace/name on a cluster
 ingress_url() {
   local ctx="$1" ns="$2" name="$3"
   local host port
@@ -29,30 +65,47 @@ ingress_url() {
   [[ "${port}" == "80" ]] && echo "http://${host}" || echo "http://${host}:${port}"
 }
 
-# ---------- Bootstrap --------------------------------------------------------
-section "Bootstrap"
+# Check if all deployments in a namespace are ready
+ns_status() {
+  local ctx="$1" ns="$2"
+  local total ready
+  total=$(kubectl --context "${ctx}" -n "${ns}" get deployments --no-headers 2>/dev/null | wc -l | tr -d ' ')
+  ready=$(kubectl --context "${ctx}" -n "${ns}" get deployments --no-headers 2>/dev/null | \
+    awk '$2 ~ /^[0-9]+\/[0-9]+$/ { split($2,a,"/"); if(a[1]==a[2]) c++ } END { print c+0 }')
+  if [[ "${total}" -eq 0 ]]; then
+    echo "NotFound"
+  elif [[ "${ready}" -eq "${total}" ]]; then
+    echo "Healthy"
+  else
+    echo "Progressing (${ready}/${total})"
+  fi
+}
 
-ARGOCD_PASS="$(argocd_admin_pass 2>/dev/null || echo '<unavailable>')"
-ARGOCD_URL=$(ingress_url "${HUB_CONTEXT}" argocd argocd-server 2>/dev/null || echo '<unavailable>')
+# ---------- Output -----------------------------------------------------------
+echo ""
+header
+
+ARGOCD_PASS="$(argocd_admin_pass 2>/dev/null || echo '?')"
+ARGOCD_URL=$(ingress_url "${HUB_CONTEXT}" argocd argocd-server 2>/dev/null || echo "-")
+ARGOCD_STATUS=$(ns_status "${HUB_CONTEXT}" argocd)
+
 GITEA_USER="$(gitea_admin_user 2>/dev/null || echo '?')"
 GITEA_PASS="$(gitea_admin_pass 2>/dev/null || echo '?')"
-GITEA_INGRESS_URL=$(ingress_url "${HUB_CONTEXT}" gitea gitea 2>/dev/null || echo '<unavailable>')
+GITEA_URL=$(ingress_url "${HUB_CONTEXT}" gitea gitea 2>/dev/null || echo "-")
+GITEA_STATUS=$(ns_status "${HUB_CONTEXT}" gitea)
 
-row "argocd" "${ARGOCD_URL}" "(admin / ${ARGOCD_PASS})"
-row "gitea"  "${GITEA_INGRESS_URL}" "(${GITEA_USER} / ${GITEA_PASS})"
-
-# ---------- ApplicationSets -------------------------------------------------
-section "ApplicationSets"
+row "argocd" "${ARGOCD_STATUS}" "${ARGOCD_URL}" "admin / ${ARGOCD_PASS}"
+row "gitea"  "${GITEA_STATUS}"  "${GITEA_URL}"  "${GITEA_USER} / ${GITEA_PASS}"
 
 kubectl --context "${HUB_CONTEXT}" -n argocd get applicationsets \
   --no-headers -o custom-columns='NAME:.metadata.name' 2>/dev/null | while read -r appset; do
-    printf "  \033[1m%s\033[0m\n" "${appset}"
+    section "${appset}"
     kubectl --context "${HUB_CONTEXT}" -n argocd get applications \
       -l "app.kubernetes.io/name=${appset}" --no-headers \
       -o custom-columns='NAME:.metadata.name,CLUSTER:.metadata.labels.app\.kubernetes\.io/cluster,NS:.spec.destination.namespace,SYNC:.status.sync.status,HEALTH:.status.health.status' \
       2>/dev/null | while read -r name cluster ns sync health; do
         url=$(ingress_url "kind-${cluster}" "${ns}" "${appset}" 2>/dev/null || true)
-        row "${name}" "${sync}/${health}" "${url}"
+        row "${name}" "${sync}/${health}" "${url:-"-"}"
       done
   done
 
