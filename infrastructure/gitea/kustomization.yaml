@@ -20,46 +20,4 @@ helmCharts:
     releaseName: gitea
     namespace: gitea
     includeCRDs: true
-    valuesInline:
-      deployment:
-        env:
-          - name: GITEA_RUNNER_REGISTRATION_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: gitea-actions-runner-token
-                key: token
-      gitea:
-        admin:
-          username: admin
-          password: admin
-          email: admin@idp.localhost
-        config:
-          actions:
-            ENABLED: true
-          database:
-            DB_TYPE: sqlite3
-          server:
-            DOMAIN: gitea.idp.localhost
-            ROOT_URL: http://gitea.idp.localhost
-      ingress:
-        enabled: true
-        className: nginx
-        hosts:
-          - host: gitea.idp.localhost
-            paths:
-              - path: /
-                pathType: Prefix
-      service:
-        http:
-          port: 3000
-      persistence:
-        enabled: true
-        size: 1Gi
-      postgresql:
-        enabled: false
-      postgresql-ha:
-        enabled: false
-      valkey:
-        enabled: false
-      test:
-        enabled: false
+    valuesFile: values.yaml

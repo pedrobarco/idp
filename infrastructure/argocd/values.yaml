@@ -1,0 +1,19 @@
+global:
+  domain: argocd.idp.localhost
+configs:
+  cm:
+    kustomize.buildOptions: --enable-helm
+  params:
+    server.insecure: true
+  # Credentials must match infrastructure/gitea admin config.
+  repositories:
+    idp:
+      url: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+      type: git
+      name: idp
+      username: admin
+      password: admin
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx

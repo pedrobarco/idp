@@ -1,10 +1,10 @@
 # Git directory generator: discovers deployment targets from clusters/ directory.
-# Path: clusters/<cluster>/<namespace>/gitea-actions
-# Add a new directory → gitea-actions auto-deploys there.
+# Path: clusters/<cluster>/<namespace>/argo-rollouts
+# Add a new directory → argo-rollouts auto-deploys there.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: gitea-actions
+  name: argo-rollouts
   namespace: argocd
 spec:
   goTemplate: true
@@ -14,12 +14,12 @@ spec:
         repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
         revision: HEAD
         directories:
-          - path: "clusters/*/*/gitea-actions"
+          - path: "clusters/*/*/argo-rollouts"
   template:
     metadata:
-      name: "gitea-actions-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
+      name: "argo-rollouts-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
       labels:
-        app.kubernetes.io/name: gitea-actions
+        app.kubernetes.io/name: argo-rollouts
         app.kubernetes.io/part-of: idp
         app.kubernetes.io/cluster: "{{ index .path.segments 1 }}"
     spec:
