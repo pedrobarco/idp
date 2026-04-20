@@ -21,22 +21,26 @@ graph TB
             Gitea
             runner[Gitea Actions Runner]
             nginx_dev[ingress-nginx]
+            rollouts_dev[Argo Rollouts]
             app_dev[hello-app<br/><i>dev/dev</i>]
         end
 
         subgraph staging["staging cluster :8080"]
             nginx_stg[ingress-nginx]
+            rollouts_stg[Argo Rollouts]
             app_qa[hello-app<br/><i>staging/qa</i>]
             app_stage[hello-app<br/><i>staging/stage</i>]
         end
 
         subgraph prod1["prod-1 cluster :8081"]
             nginx_p1[ingress-nginx]
+            rollouts_p1[Argo Rollouts]
             app_p1[hello-app<br/><i>prod-1/prod</i>]
         end
 
         subgraph prod2["prod-2 cluster :8082"]
             nginx_p2[ingress-nginx]
+            rollouts_p2[Argo Rollouts]
             app_p2[hello-app<br/><i>prod-2/prod</i>]
         end
 
@@ -46,8 +50,7 @@ graph TB
     Gitea -- "repo sync" --> ArgoCD
     Gitea -- "triggers" --> runner
     runner -- "build & push" --> registry
-    ArgoCD -- "manages" --> app_dev
-    ArgoCD -- "manages" --> runner
+    ArgoCD -- "manages" --> dev
     ArgoCD -- "manages" --> staging
     ArgoCD -- "manages" --> prod1
     ArgoCD -- "manages" --> prod2
@@ -55,12 +58,12 @@ graph TB
 
 Four kind clusters simulate a real multi-cluster environment:
 
-| Cluster   | Role                           | Port    |
-| --------- | ------------------------------ | ------- |
+| Cluster   | Role                                      | Port    |
+| --------- | ----------------------------------------- | ------- |
 | `dev`     | Hub — runs ArgoCD, Gitea + Actions runner | `:80`   |
-| `staging` | Remote — stage + qa namespaces | `:8080` |
-| `prod-1`  | Remote — prod namespace        | `:8081` |
-| `prod-2`  | Remote — prod namespace        | `:8082` |
+| `staging` | Remote — stage + qa namespaces            | `:8080` |
+| `prod-1`  | Remote — prod namespace                   | `:8081` |
+| `prod-2`  | Remote — prod namespace                   | `:8082` |
 
 ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that ArgoCD watches.
 
@@ -68,52 +71,29 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 
 ```
 .
-├── scripts/                # Operational scripts
-│   ├── run.sh              # Full setup (terraform → bootstrap → GitOps)
-│   ├── clean.sh            # Full teardown (terraform destroy)
-│   ├── build.sh            # Build and push a project image
-│   ├── status.sh           # Platform status
-│   ├── sync-projects.sh    # Push repos to Gitea
-│   └── utils.sh            # Shared config and helpers
+├── scripts/                  # Operational scripts (run, clean, sync, status, build)
+├── terraform/                # Infrastructure as code (clusters, repositories, modules)
 │
-├── terraform/              # Infrastructure as code
-│   ├── clusters/           # Root module: Docker network, registry, Kind clusters
-│   ├── repositories/       # Root module: Gitea repositories
-│   └── modules/            # Reusable modules
-│       ├── kind-cluster/   # Single Kind cluster + containerd registry config
-│       └── gitea-repository/ # Single Gitea repository
+├── infrastructure/           # Shared infra bases (Kustomize / Helm)
+│   └── <component>/          # e.g. argocd, ingress-nginx, argo-rollouts, gitea, …
 │
-├── infrastructure/         # Shared infra definitions (managed by ArgoCD)
-│   ├── argocd/             # ArgoCD Helm chart
-│   ├── gitea/              # Gitea Helm chart + runner token secret
-│   ├── gitea-actions/      # Gitea Actions runner + DinD sidecar
-│   ├── ingress-nginx/      # Ingress controller
-│   ├── argocd-manager/     # Remote cluster SA + RBAC
-│   └── registry/           # Local registry ConfigMap
+├── bootstrap/                # One-shot infra per cluster (applied by run.sh)
+│   └── <cluster>/            # Kustomization referencing infrastructure/ bases
 │
-├── bootstrap/              # One-shot infra per cluster (applied by run.sh)
-│   ├── dev/                # ArgoCD + Gitea + ingress-nginx + registry + cluster secrets
-│   ├── staging/            # argocd-manager + ingress-nginx + registry
-│   ├── prod-1/             # argocd-manager + ingress-nginx + registry
-│   └── prod-2/             # argocd-manager + ingress-nginx + registry
+├── applicationsets/          # ArgoCD ApplicationSet declarations
+│   └── <component>.yaml      # Git directory generator → clusters/*/*/<component>
 │
-├── applicationsets/        # ArgoCD ApplicationSet declarations
-│   ├── applicationsets.yaml  # Root Application (tracks this directory)
-│   ├── gitea-actions.yaml    # List generator for the Actions runner
-│   └── hello-app.yaml       # Git directory generator for hello-app
+├── apps/                     # App base manifests (Deployment, Service, Ingress, …)
+│   └── <app>/
 │
-├── apps/                   # App base manifests (never applied directly)
-│   └── hello-app/          # Deployment, Service, Ingress
+├── clusters/                 # Per-target overlays (ArgoCD's source of truth)
+│   └── <cluster>/
+│       ├── <component>/      # Infra overlay (e.g. ingress-nginx, argo-rollouts)
+│       └── <namespace>/
+│           └── <app>/        # App overlay with per-env patches
 │
-├── clusters/               # Per-target overlays (ArgoCD's source of truth)
-│   ├── dev/dev/hello-app/
-│   ├── staging/stage/hello-app/
-│   ├── staging/qa/hello-app/
-│   ├── prod-1/prod/hello-app/
-│   └── prod-2/prod/hello-app/
-│
-├── projects/               # Application source code
-│   └── hello-app/          # Go app + Dockerfile + CI workflow
+├── projects/                 # Application source code + CI workflows
+│   └── <app>/
 │
 └── Makefile
 ```
@@ -125,7 +105,7 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 0. **Terraform** — provision Docker network, registry, and 4 Kind clusters
 1. **Secrets** — generate placeholder `.env` files for cluster credentials and a runner registration token for Gitea Actions
 2. **Bootstrap** — build images + apply `bootstrap/<cluster>` in parallel
-3. **Wait** — ArgoCD, Gitea, ingress-nginx rollouts
+3. **Wait** — ArgoCD + Gitea rollouts
 4. **Credentials** — generate real SA tokens, re-apply cluster secrets
 5. **Repos** — provision Gitea repositories via Terraform
 6. **Sync** — push IDP repo + projects to Gitea
@@ -159,15 +139,46 @@ Each matching directory becomes an ArgoCD Application. The kustomization referen
 1. Create `clusters/<cluster>/<namespace>/<app>/kustomization.yaml`
 2. Run `make sync` — ArgoCD auto-discovers the new directory
 
+### Platform Status (`make status`)
+
+```
+  NAME                                     STATUS             URL                                        CREDENTIALS
+  ──────────────────────────────────────── ────────────────── ────────────────────────────────────────── ────────────────────
+  argocd                                   Healthy            http://argocd.idp.localhost                admin / ••••••••
+  gitea                                    Healthy            http://gitea.idp.localhost                 admin / ••••••••
+
+  argo-rollouts
+  argo-rollouts-argo-rollouts-dev          Synced/Healthy     -                                          -
+  argo-rollouts-argo-rollouts-prod-1       Synced/Healthy     -                                          -
+  argo-rollouts-argo-rollouts-prod-2       Synced/Healthy     -                                          -
+  argo-rollouts-argo-rollouts-staging      Synced/Healthy     -                                          -
+
+  gitea-actions
+  gitea-actions-gitea-dev                  Synced/Healthy     -                                          -
+
+  hello-app
+  hello-app-dev-dev                        Synced/Healthy     http://hello-app.dev.idp.localhost         -
+  hello-app-prod-prod-1                    Synced/Healthy     http://hello-app.prod.idp.localhost:8081   -
+  hello-app-prod-prod-2                    Synced/Healthy     http://hello-app.prod.idp.localhost:8082   -
+  hello-app-qa-staging                     Synced/Healthy     http://hello-app.qa.idp.localhost:8080     -
+  hello-app-stage-staging                  Synced/Healthy     http://hello-app.stage.idp.localhost:8080  -
+
+  ingress-nginx
+  ingress-nginx-ingress-nginx-dev          Synced/Healthy     -                                          -
+  ingress-nginx-ingress-nginx-prod-1       Synced/Healthy     -                                          -
+  ingress-nginx-ingress-nginx-prod-2       Synced/Healthy     -                                          -
+  ingress-nginx-ingress-nginx-staging      Synced/Healthy     -                                          -
+```
+
 ## Commands
 
-| Command       | Description                         |
-| ------------- | ----------------------------------- |
-| `make run`    | Provision infrastructure and activate GitOps |
+| Command       | Description                                    |
+| ------------- | ---------------------------------------------- |
+| `make run`    | Provision infrastructure and activate GitOps   |
 | `make clean`  | Destroy all infrastructure (terraform destroy) |
-| `make sync`   | Push repos to Gitea                 |
-| `make status` | Show platform status                |
-| `make help`   | List all targets                    |
+| `make sync`   | Push repos to Gitea                            |
+| `make status` | Show platform status                           |
+| `make help`   | List all targets                               |
 
 ## Prerequisites
 
