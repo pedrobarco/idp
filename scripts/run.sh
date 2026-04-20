@@ -93,9 +93,6 @@ for pid in "${BUILD_PIDS[@]}"; do wait "${pid}"; done
 # ---------- 3. Wait for infrastructure (parallel) ----------------------------
 wait_for_rollout "${HUB_CONTEXT}" argocd argocd-server &
 wait_for_rollout "${HUB_CONTEXT}" gitea gitea &
-for c in "${CLUSTERS[@]}"; do
-  wait_for_rollout "kind-${c}" ingress-nginx ingress-nginx-controller &
-done
 wait
 
 # ---------- 4. Populate real cluster credentials (parallel) -------------------
@@ -136,21 +133,12 @@ kustomize build "${REPO_ROOT}/bootstrap/dev/cluster-secrets" | \
 # ---------- 5. Provision Gitea repos via Terraform ----------------------------
 resolve_gitea || { echo "ERROR: Gitea is not running." >&2; exit 1; }
 
-GITEA_LOCAL_PORT=3000
-kubectl --context "${HUB_CONTEXT}" -n gitea port-forward svc/gitea-http "${GITEA_LOCAL_PORT}:3000" &
-PORTFWD_PID=$!
-trap "kill ${PORTFWD_PID} 2>/dev/null || true" EXIT
-sleep 2
-
 log "Provisioning Gitea repositories…"
 [[ -d "${TF_DIR}/repositories/.terraform" ]] || terraform -chdir="${TF_DIR}/repositories" init -input=false
 terraform -chdir="${TF_DIR}/repositories" apply -auto-approve -input=false \
-  -var "gitea_url=http://localhost:${GITEA_LOCAL_PORT}" \
+  -var "gitea_url=${GITEA_URL}" \
   -var "gitea_username=${GITEA_ADMIN_USER}" \
   -var "gitea_password=${GITEA_ADMIN_PASS}"
-
-kill "${PORTFWD_PID}" 2>/dev/null || true
-trap - EXIT
 
 # ---------- 6. Push content to Gitea repos ------------------------------------
 log "Syncing project content to Gitea…"

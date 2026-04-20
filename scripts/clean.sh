@@ -19,16 +19,11 @@ TF_DIR="${REPO_ROOT}/terraform"
 if [[ -f "${TF_DIR}/repositories/terraform.tfstate" ]]; then
   log "Destroying Gitea repositories…"
   if resolve_gitea; then
-    GITEA_LOCAL_PORT=3000
-    kubectl --context "${HUB_CONTEXT}" -n gitea port-forward svc/gitea-http "${GITEA_LOCAL_PORT}:3000" &
-    PORTFWD_PID=$!
-    sleep 2
     [[ -d "${TF_DIR}/repositories/.terraform" ]] || terraform -chdir="${TF_DIR}/repositories" init -input=false
     terraform -chdir="${TF_DIR}/repositories" destroy -auto-approve -input=false \
-      -var "gitea_url=http://localhost:${GITEA_LOCAL_PORT}" \
+      -var "gitea_url=${GITEA_URL}" \
       -var "gitea_username=${GITEA_ADMIN_USER}" \
       -var "gitea_password=${GITEA_ADMIN_PASS}" || true
-    kill "${PORTFWD_PID}" 2>/dev/null || true
   fi
 fi
 

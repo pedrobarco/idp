@@ -1,9 +1,9 @@
 # Bootstrap for the prod-1 cluster.
-# Installs: ingress-nginx, argocd-manager SA, registry ConfigMap.
+# Installs: argocd-manager SA, registry ConfigMap.
+# ingress-nginx is managed via ArgoCD ApplicationSet.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../../infrastructure/ingress-nginx
   - ../../infrastructure/argocd-manager
   - ../../infrastructure/registry

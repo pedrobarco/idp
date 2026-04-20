@@ -34,10 +34,12 @@ section "Bootstrap"
 
 ARGOCD_PASS="$(argocd_admin_pass 2>/dev/null || echo '<unavailable>')"
 ARGOCD_URL=$(ingress_url "${HUB_CONTEXT}" argocd argocd-server 2>/dev/null || echo '<unavailable>')
-resolve_gitea || true
+GITEA_USER="$(gitea_admin_user 2>/dev/null || echo '?')"
+GITEA_PASS="$(gitea_admin_pass 2>/dev/null || echo '?')"
+GITEA_INGRESS_URL=$(ingress_url "${HUB_CONTEXT}" gitea gitea 2>/dev/null || echo '<unavailable>')
 
 row "argocd" "${ARGOCD_URL}" "(admin / ${ARGOCD_PASS})"
-row "gitea"  "${GITEA_URL:-<unavailable>}" "(${GITEA_ADMIN_USER:-?} / ${GITEA_ADMIN_PASS:-?})"
+row "gitea"  "${GITEA_INGRESS_URL}" "(${GITEA_USER} / ${GITEA_PASS})"
 
 # ---------- ApplicationSets -------------------------------------------------
 section "ApplicationSets"
