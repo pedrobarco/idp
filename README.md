@@ -11,6 +11,8 @@
 ```bash
 make run      # create clusters, install infra, activate GitOps
 make status   # show platform status
+make stop     # stop clusters without losing state
+make start    # resume previously stopped clusters
 make clean    # tear everything down
 ```
 
@@ -75,7 +77,7 @@ ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that A
 
 ```
 .
-├── scripts/                  # Operational scripts (run, clean, sync, status, build)
+├── scripts/                  # Operational scripts (run, clean, sync, status, stop, start, build)
 ├── terraform/                # Infrastructure as code (clusters, repositories, modules)
 │
 ├── infrastructure/           # Shared infra bases (Kustomize / Helm)
@@ -176,13 +178,15 @@ Each matching directory becomes an ArgoCD Application. The kustomization referen
 
 ## Commands
 
-| Command       | Description                                    |
-| ------------- | ---------------------------------------------- |
-| `make run`    | Provision infrastructure and activate GitOps   |
-| `make clean`  | Destroy all infrastructure (terraform destroy) |
-| `make sync`   | Push repos to Gitea                            |
-| `make status` | Show platform status                           |
-| `make help`   | List all targets                               |
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `make run`    | Provision infrastructure and activate GitOps          |
+| `make stop`   | Stop clusters without losing state (docker stop)      |
+| `make start`  | Resume previously stopped clusters (docker start)     |
+| `make clean`  | Destroy all infrastructure (terraform destroy)        |
+| `make sync`   | Push repos to Gitea                                   |
+| `make status` | Show platform status                                  |
+| `make help`   | List all targets                                      |
 
 ## Prerequisites
 
