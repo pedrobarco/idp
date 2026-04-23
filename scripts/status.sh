@@ -97,6 +97,46 @@ GITEA_STATUS=$(ns_status "${HUB_CONTEXT}" gitea)
 row "argocd" "${ARGOCD_STATUS}" "${ARGOCD_URL}" "admin / ${ARGOCD_PASS}"
 row "gitea"  "${GITEA_STATUS}"  "${GITEA_URL}"  "${GITEA_USER} / ${GITEA_PASS}"
 
+# Discover ingress info by label in a namespace.
+# Sets: _DISCOVER_URL, _DISCOVER_CREDS
+discover_ingress() {
+  local ctx="$1" ns="$2"
+  _DISCOVER_URL="" _DISCOVER_CREDS=""
+
+  # Find the ingress labeled part-of=idp
+  local json
+  json=$(kubectl --context "${ctx}" -n "${ns}" get ingress \
+    -l "app.kubernetes.io/part-of=idp" --no-headers \
+    -o jsonpath='{.items[0].spec.rules[0].host} {.items[0].metadata.annotations.idp\.localhost/credentials-secret} {.items[0].metadata.annotations.idp\.localhost/credentials-keys}' \
+    2>/dev/null) || return
+  local host secret_name keys_csv
+  read -r host secret_name keys_csv <<< "${json}"
+  [[ -z "${host}" || "${host}" == " " ]] && return
+
+  # Build URL
+  local port
+  port=$(cluster_port "${ctx#kind-}")
+  [[ "${port}" == "80" ]] && _DISCOVER_URL="http://${host}" || _DISCOVER_URL="http://${host}:${port}"
+
+  # Build credentials from annotated secret + keys
+  [[ -z "${secret_name}" || "${secret_name}" == " " ]] && return
+  [[ -z "${keys_csv}" || "${keys_csv}" == " " ]] && return
+  local IFS=',' parts=()
+  for key in ${keys_csv}; do
+    local val
+    val=$(kubectl --context "${ctx}" -n "${ns}" get secret "${secret_name}" \
+      -o jsonpath="{.data.${key}}" 2>/dev/null | base64 -d 2>/dev/null) || continue
+    [[ -n "${val}" ]] && parts+=("${val}")
+  done
+  if [[ ${#parts[@]} -gt 0 ]]; then
+    local result="${parts[0]}"
+    for ((i=1; i<${#parts[@]}; i++)); do
+      result+=" / ${parts[$i]}"
+    done
+    _DISCOVER_CREDS="${result}"
+  fi
+}
+
 kubectl --context "${HUB_CONTEXT}" -n argocd get applicationsets \
   --no-headers -o custom-columns='NAME:.metadata.name' 2>/dev/null | while read -r appset; do
     section "${appset}"
@@ -104,8 +144,9 @@ kubectl --context "${HUB_CONTEXT}" -n argocd get applicationsets \
       -l "app.kubernetes.io/name=${appset}" --no-headers \
       -o custom-columns='NAME:.metadata.name,CLUSTER:.metadata.labels.app\.kubernetes\.io/cluster,NS:.spec.destination.namespace,SYNC:.status.sync.status,HEALTH:.status.health.status' \
       2>/dev/null | while read -r name cluster ns sync health; do
-        url=$(ingress_url "kind-${cluster}" "${ns}" "${appset}" 2>/dev/null || true)
-        row "${name}" "${sync}/${health}" "${url:-"-"}"
+        ctx="kind-${cluster}"
+        discover_ingress "${ctx}" "${ns}" 2>/dev/null || true
+        row "${name}" "${sync}/${health}" "${_DISCOVER_URL:-"-"}" "${_DISCOVER_CREDS}"
       done
   done
 
