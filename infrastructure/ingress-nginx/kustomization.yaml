@@ -1,35 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-resources:
-  - https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.12.3/deploy/static/provider/kind/deploy.yaml
+namespace: ingress-nginx
 
-# Annotate admission Jobs as ArgoCD hooks so they are not tracked as
-# regular resources (avoids permanent OutOfSync on completed Jobs).
-#   - admission-create: PreSync — creates the webhook TLS secret before
-#     the controller Deployment starts (which mounts it as a volume).
-#   - admission-patch: PostSync — patches the ValidatingWebhookConfiguration
-#     with the CA bundle after everything else is deployed.
-patches:
-  - target:
-      group: batch
-      version: v1
-      kind: Job
-      name: ingress-nginx-admission-create
-    patch: |
-      - op: add
-        path: /metadata/annotations
-        value:
-          argocd.argoproj.io/hook: PreSync
-          argocd.argoproj.io/hook-delete-policy: HookSucceeded
-  - target:
-      group: batch
-      version: v1
-      kind: Job
-      name: ingress-nginx-admission-patch
-    patch: |
-      - op: add
-        path: /metadata/annotations
-        value:
-          argocd.argoproj.io/hook: PostSync
-          argocd.argoproj.io/hook-delete-policy: HookSucceeded
+resources:
+  - namespace.yaml

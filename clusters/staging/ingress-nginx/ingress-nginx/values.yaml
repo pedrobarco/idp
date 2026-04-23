@@ -1,0 +1,15 @@
+controller:
+  hostPort:
+    enabled: true
+  service:
+    type: NodePort
+  nodeSelector:
+    ingress-ready: "true"
+    kubernetes.io/os: linux
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
+  admissionWebhooks:
+    enabled: false
