@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kargo
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+        revision: HEAD
+        directories:
+          - path: "clusters/*/*/kargo"
+  template:
+    metadata:
+      name: "kargo-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
+      labels:
+        app.kubernetes.io/name: kargo
+        app.kubernetes.io/part-of: idp
+        app.kubernetes.io/cluster: "{{ index .path.segments 1 }}"
+    spec:
+      project: default
+      source:
+        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+        targetRevision: HEAD
+        path: "{{ .path.path }}"
+      destination:
+        name: "{{ index .path.segments 1 }}"
+        namespace: "{{ index .path.segments 2 }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../infrastructure/kargo
+
+helmCharts:
+  - name: kargo
+    repo: oci://ghcr.io/akuity/kargo-charts
+    version: "1.10.0"
+    releaseName: kargo
+    namespace: kargo
+    includeCRDs: true
+    valuesFile: values.yaml
+
+patches:
+  - path: patches/kargo-ingress.yaml
+    target:
+      kind: Ingress
+      name: kargo-api
+  - target:
+      kind: Secret
+      name: kargo-api
+    patch: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: kargo-api
+      data:
+        username: YWRtaW4=
+        password: YWRtaW4=
