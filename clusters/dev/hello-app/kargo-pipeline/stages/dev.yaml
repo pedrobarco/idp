@@ -1,0 +1,48 @@
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: dev
+  namespace: hello-app
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: hello-app
+      sources:
+        direct: true
+  promotionTemplate:
+    spec:
+      vars:
+        - name: gitRepo
+          value: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+        - name: imageRepo
+          value: registry-tls-proxy.registry.svc.cluster.local/hello-app
+      steps:
+        - uses: git-clone
+          config:
+            repoURL: ${{ vars.gitRepo }}
+            checkout:
+              - branch: main
+                path: ./src
+        - uses: kustomize-set-image
+          as: update-image
+          config:
+            path: ./src/clusters/dev/dev/hello-app
+            images:
+              - image: localhost:5001/hello-app
+                tag: ${{ imageFrom(vars.imageRepo).Tag }}
+        - uses: git-commit
+          as: commit
+          config:
+            path: ./src
+            message: ${{ outputs['update-image'].commitMessage }}
+        - uses: git-push
+          config:
+            path: ./src
+        - uses: argocd-update
+          config:
+            apps:
+              - name: hello-app-dev-dev
+                sources:
+                  - repoURL: ${{ vars.gitRepo }}
+                    desiredRevision: ${{ outputs.commit.commit }}

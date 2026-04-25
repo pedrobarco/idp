@@ -1,0 +1,12 @@
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: hello-app
+  namespace: hello-app
+spec:
+  subscriptions:
+    - image:
+        repoURL: registry-tls-proxy.registry.svc.cluster.local/hello-app
+        insecureSkipTLSVerify: true
+        imageSelectionStrategy: NewestBuild
+        discoveryLimit: 5
