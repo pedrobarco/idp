@@ -25,6 +25,7 @@ graph TB
         subgraph dev["dev cluster :80"]
             ArgoCD
             Gitea
+            Kargo
             runner[Gitea Actions Runner]
             nginx_dev[ingress-nginx]
             rollouts_dev[Argo Rollouts]
@@ -66,7 +67,7 @@ Four kind clusters simulate a real multi-cluster environment:
 
 | Cluster   | Role                                      | Port    |
 | --------- | ----------------------------------------- | ------- |
-| `dev`     | Hub — runs ArgoCD, Gitea + Actions runner | `:80`   |
+| `dev`     | Hub — runs ArgoCD, Gitea, Kargo + Actions runner | `:80`   |
 | `staging` | Remote — stage + qa namespaces            | `:8080` |
 | `prod-1`  | Remote — prod namespace                   | `:8081` |
 | `prod-2`  | Remote — prod namespace                   | `:8082` |
@@ -174,6 +175,9 @@ Each matching directory becomes an ArgoCD Application. The kustomization referen
   ingress-nginx-ingress-nginx-prod-1       Synced/Healthy     -                                          -
   ingress-nginx-ingress-nginx-prod-2       Synced/Healthy     -                                          -
   ingress-nginx-ingress-nginx-staging      Synced/Healthy     -                                          -
+
+  kargo
+  kargo-kargo-dev                          Synced/Healthy     http://kargo.idp.localhost                 admin / ••••••••
 ```
 
 ## Commands

@@ -139,8 +139,8 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 ## Acceptance Criteria
 
 ### Infrastructure
-- [ ] Kargo is deployed to the hub cluster.
-- [ ] Argo Rollouts controller is deployed to every cluster.
+- [x] Kargo is deployed to the hub cluster.
+- [x] Argo Rollouts controller is deployed to every cluster.
 - [ ] No traffic router is required in any environment.
 
 ### Promotion
