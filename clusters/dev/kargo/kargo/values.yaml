@@ -12,6 +12,11 @@ api:
     tls:
       enabled: false
 controller:
+  allowCredentialsOverHTTP: true
+  gitClient:
+    # Explicitly set before v1.12.0 where the default changes from
+    # AlwaysRebase to RebaseOrMerge.
+    pushIntegrationPolicy: AlwaysRebase
   argocd:
     integrationEnabled: true
     namespace: argocd
