@@ -4,9 +4,12 @@ metadata:
   name: hello-app
   namespace: hello-app
 spec:
+  freightCreationPolicy: Automatic
+  interval: 5m0s
   subscriptions:
     - image:
         repoURL: registry-tls-proxy.registry.svc.cluster.local/hello-app
         insecureSkipTLSVerify: true
         imageSelectionStrategy: NewestBuild
         discoveryLimit: 5
+        strictSemvers: true
