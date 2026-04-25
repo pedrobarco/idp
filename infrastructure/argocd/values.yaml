@@ -13,7 +13,7 @@ configs:
       type: git
       name: idp
       username: admin
-      password: admin
+      password: admin123
 server:
   ingress:
     enabled: true

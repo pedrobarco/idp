@@ -8,15 +8,13 @@ deployment:
 gitea:
   admin:
     username: admin
-    password: admin
+    password: admin123
     email: admin@idp.localhost
   config:
     actions:
       ENABLED: true
     database:
       DB_TYPE: sqlite3
-    security:
-      MIN_PASSWORD_LENGTH: 1
     server:
       DOMAIN: gitea.idp.localhost
       ROOT_URL: http://gitea.idp.localhost
