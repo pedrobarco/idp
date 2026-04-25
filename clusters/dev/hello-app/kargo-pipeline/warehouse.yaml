@@ -5,11 +5,12 @@ metadata:
   namespace: hello-app
 spec:
   freightCreationPolicy: Automatic
-  interval: 5m0s
+  interval: 30s
   subscriptions:
     - image:
         repoURL: registry-tls-proxy.registry.svc.cluster.local/hello-app
         insecureSkipTLSVerify: true
         imageSelectionStrategy: NewestBuild
-        discoveryLimit: 5
-        strictSemvers: true
+        discoveryLimit: 20
+        strictSemvers: false
+        allowTags: "^[0-9a-f]{7}$"
