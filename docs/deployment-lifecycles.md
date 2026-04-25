@@ -72,6 +72,10 @@ The exception is coupled applications that must be deployed together (e.g. an AP
 | Multi-env commit (prod)     | Rejected — must split   | PR policy              | CI enforcement             |
 | Multi-app commit            | Per-app (parallel)      | Per-app analysis       | ArgoCD sync                |
 
+## Current State
+
+The dev stage of the image update lifecycle is operational: CI builds and pushes images → Kargo Warehouse discovers them via the TLS registry proxy → Kargo auto-promotes to dev → ArgoCD syncs. The remaining stages (qa, staging, prod1, prod2) and Argo Rollouts analysis integration are not yet implemented.
+
 ## Acceptance Criteria
 
 - [ ] Image updates follow the full sequential promotion chain with automated analysis.

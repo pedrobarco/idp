@@ -144,9 +144,10 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 - [ ] No traffic router is required in any environment.
 
 ### Promotion
-- [ ] Kargo Warehouse detects new container images, git commits, and Helm chart versions.
-- [ ] Kargo Stages exist for each environment (dev, qa, staging, prod1, prod2).
-- [ ] Dev promotions trigger immediately when new Freight is available.
+- [x] Kargo Warehouse detects new container images via the TLS registry proxy.
+- [ ] Kargo Warehouse detects git commits and Helm chart versions.
+- [x] Kargo Stage exists for dev. Remaining environments (qa, staging, prod1, prod2) are pending.
+- [x] Dev promotions trigger immediately when new Freight is available.
 - [ ] QA and staging promotions are scheduled (daily at 2am).
 - [ ] Prod1 promotions are scheduled (weekly).
 - [ ] Prod2 promotions trigger immediately after prod1 verification.
@@ -171,4 +172,4 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 
 ### End-to-end
 - [ ] The full promotion chain (dev → qa → staging → prod1 → prod2) is operational.
-- [ ] CI remains in Gitea Actions. Kargo handles all of CD.
+- [x] CI remains in Gitea Actions. Kargo handles all of CD (dev pipeline end-to-end).
