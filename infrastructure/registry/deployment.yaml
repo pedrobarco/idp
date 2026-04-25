@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-tls-proxy
+  namespace: registry
+  labels:
+    app: registry-tls-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry-tls-proxy
+  template:
+    metadata:
+      labels:
+        app: registry-tls-proxy
+    spec:
+      initContainers:
+        - name: generate-cert
+          image: alpine:3.20
+          command: ["sh", "-c"]
+          args:
+            - |
+              apk add --no-cache openssl &&
+              openssl req -x509 -nodes -days 3650 \
+                -newkey rsa:2048 \
+                -keyout /certs/tls.key \
+                -out /certs/tls.crt \
+                -subj "/CN=registry-tls-proxy" \
+                -addext "subjectAltName=DNS:registry-tls-proxy,DNS:registry-tls-proxy.registry,DNS:registry-tls-proxy.registry.svc,DNS:registry-tls-proxy.registry.svc.cluster.local"
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 443
+              name: https
+          volumeMounts:
+            - name: certs
+              mountPath: /etc/nginx/certs
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 443
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: certs
+          emptyDir: {}
+        - name: nginx-config
+          configMap:
+            name: registry-tls-proxy-nginx
