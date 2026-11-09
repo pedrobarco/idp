@@ -1,31 +1,28 @@
-# Git directory generator: discovers deployment targets from clusters/ directory.
-# Path: clusters/<cluster>/<namespace>/ingress-nginx
-# Add a new directory → ingress-nginx auto-deploys there.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: ingress-nginx
+  name: kargo-pipeline
   namespace: argocd
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   generators:
     - git:
-        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
         revision: HEAD
         directories:
-          - path: "clusters/*/*/ingress-nginx"
+          - path: "clusters/*/*/kargo-pipeline"
   template:
     metadata:
-      name: "ingress-nginx-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
+      name: "kargo-pipeline-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
       labels:
-        app.kubernetes.io/name: ingress-nginx
+        app.kubernetes.io/name: kargo-pipeline
         app.kubernetes.io/part-of: idp
         app.kubernetes.io/cluster: "{{ index .path.segments 1 }}"
     spec:
       project: default
       source:
-        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
         targetRevision: HEAD
         path: "{{ .path.path }}"
       destination:

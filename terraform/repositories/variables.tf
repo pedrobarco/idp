@@ -17,5 +17,5 @@ variable "gitea_password" {
 variable "repositories" {
   description = "List of repository names to create."
   type        = list(string)
-  default     = ["idp", "hello-app"]
+  default     = ["gitops", "actions", "hello-app"]
 }

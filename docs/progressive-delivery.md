@@ -70,8 +70,8 @@ CI remains in Gitea Actions. Kargo handles all of CD.
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `build-and-push.yaml` | `workflow_call` (from project CI) | Builds and pushes a container image via `scripts/build.sh` |
-| `projects/<app>/.gitea/workflows/ci.yaml` | Push to main | Calls `build-and-push.yaml` for the project |
+| `actions/.gitea/workflows/build-and-push.yaml` | `workflow_call` (from project CI) | Builds and pushes a container image via `actions/build.sh` |
+| `projects/<app>/.gitea/workflows/ci.yaml` | Push to main | Calls the actions repo workflow for the project |
 
 ### Rollout strategy
 

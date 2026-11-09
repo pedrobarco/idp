@@ -2,104 +2,114 @@
 #
 # sync-projects.sh
 #
-# Syncs the IDP repository and local projects/*/ with Gitea.
-#   1. Pushes the full IDP repo to Gitea (used by ArgoCD for GitOps)
-#   2. Pushes each projects/*/ as a separate repo
+# Publishes each managed folder in this repo to its own Gitea repository.
+#   gitops/            → gitops
+#   actions/           → actions
+#   projects/<name>/   → <name>
 #
-# Note: Repos are created by Terraform (terraform/repositories).
-# This script only pushes content.
+# For every folder: pull commits that exist only on Gitea (for example a
+# Kargo promotion), then push the folder. The first push seeds an empty repo.
+#
+# Repos are created by Terraform (terraform/repositories). This script only
+# moves git history.
 #
 # Usage:
 #   ./scripts/sync-projects.sh
 #
 # Configuration is loaded from scripts/utils.sh
 #
-# Prerequisites: git, rsync
+# Prerequisites: git (with git-subtree)
 #
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=utils.sh
 source "${SCRIPT_DIR}/utils.sh"
-resolve_gitea || { echo "ERROR: Gitea is not running." >&2; exit 1; }
-
-PROJECTS_DIR="${REPO_ROOT}/projects"
 
 # Build the Gitea remote URL for a given repo name.
 gitea_remote_url() {
   echo "http://${GITEA_AUTH}@${GITEA_URL#http://}/${GITEA_ADMIN_USER}/${1}.git"
 }
 
-# Sync the IDP repo to Gitea. Local workspace is the source of truth;
-# any remote-only changes (e.g. from Kargo) are overwritten.
-push_idp() {
-  local remote
-  remote=$(gitea_remote_url "idp")
-  local tmp
-  tmp=$(mktemp -d)
-
-  if git clone -q --single-branch --branch main "${remote}" "${tmp}" 2>/dev/null; then
-    : # cloned
-  else
-    git -C "${tmp}" init -q
-    git -C "${tmp}" checkout -q -b main
-    git -C "${tmp}" remote add origin "${remote}"
-  fi
-
-  rsync -a --delete --exclude='.git' --exclude='charts/' --exclude='node_modules/' \
-    "${REPO_ROOT}/" "${tmp}/"
-  git -C "${tmp}" add -A
-
-  if git -C "${tmp}" diff --cached --quiet; then
-    echo "  (no changes)"
-  else
-    git -C "${tmp}" -c user.name="idp" -c user.email="idp@local" \
-      commit -q -m "sync: update idp"
-    git -C "${tmp}" push --force -u origin main 2>&1 || \
-      echo "  WARNING: push failed for idp"
-  fi
-
-  rm -rf "${tmp}"
+# Merge a subtree commit into prefix and record the join for the next split.
+join_split() {
+  local prefix="$1"
+  local name="$2"
+  local split_sha="$3"
+  local verb="$4"
+  local head_sha
+  head_sha=$(git -C "${REPO_ROOT}" rev-parse HEAD)
+  git -C "${REPO_ROOT}" \
+    -c user.name="idp" -c user.email="idp@local" \
+    merge --no-ff --allow-unrelated-histories -Xsubtree="${prefix}" \
+    -m "$(printf 'sync: %s %s\n\ngit-subtree-dir: %s\ngit-subtree-mainline: %s\ngit-subtree-split: %s\n' \
+      "${verb}" "${name}" "${prefix}" "${head_sha}" "${split_sha}")" \
+    "${split_sha}"
 }
 
-# Sync a project subdirectory to its own Gitea repo using git subtree.
-# Extracts commits that touch projects/<name>/ and force-pushes them,
-# preserving the original commit messages and history.
-push_project() {
-  local name="$1"
-  local prefix="projects/${name}"
-  local remote
+# Pull Gitea main into prefix when the remote branch exists, then push prefix.
+# Remote names are temporary and removed before returning.
+sync_prefix() {
+  local prefix="$1"
+  local name="$2"
+  local remote remote_name split_sha
   remote=$(gitea_remote_url "${name}")
-  local remote_name="gitea-${name}"
+  remote_name="gitea-${name}"
 
-  # Ensure remote exists with correct URL
+  if [[ ! -d "${REPO_ROOT}/${prefix}" ]]; then
+    echo "ERROR: missing ${prefix}" >&2
+    return 1
+  fi
+
   if git -C "${REPO_ROOT}" remote get-url "${remote_name}" &>/dev/null; then
     git -C "${REPO_ROOT}" remote set-url "${remote_name}" "${remote}"
   else
     git -C "${REPO_ROOT}" remote add "${remote_name}" "${remote}"
   fi
 
-  local split_ref
-  split_ref=$(git -C "${REPO_ROOT}" subtree split --prefix="${prefix}" 2>/dev/null | tail -1)
-  git -C "${REPO_ROOT}" push --force "${remote_name}" "${split_ref}:refs/heads/main" 2>&1 || \
-    echo "  WARNING: push failed for ${name}"
+  # The published folder history has no common ancestor with this repo until it
+  # is joined back. Record that join so the next sync does not replay it.
+  if git -C "${REPO_ROOT}" ls-remote --exit-code --heads "${remote_name}" main &>/dev/null; then
+    git -C "${REPO_ROOT}" fetch --quiet "${remote_name}" main
+    if ! git -C "${REPO_ROOT}" merge-base --is-ancestor FETCH_HEAD HEAD; then
+      join_split "${prefix}" "${name}" "$(git -C "${REPO_ROOT}" rev-parse FETCH_HEAD)" "pull"
+    fi
+  fi
 
-  git -C "${REPO_ROOT}" remote remove "${remote_name}" 2>/dev/null || true
+  split_sha=$(git -C "${REPO_ROOT}" subtree split --prefix="${prefix}")
+  git -C "${REPO_ROOT}" push "${remote_name}" "${split_sha}:refs/heads/main"
+  if ! git -C "${REPO_ROOT}" merge-base --is-ancestor "${split_sha}" HEAD; then
+    join_split "${prefix}" "${name}" "${split_sha}" "record"
+  fi
+  git -C "${REPO_ROOT}" remote remove "${remote_name}"
 }
 
-# ── Sync all repos ──────────────────────────────────────────────────────────
-log "Syncing idp…"
-push_idp
-log "idp ✓"
-echo
+sync_all() {
+  local project_path project
 
-for project_path in "${PROJECTS_DIR}"/*/; do
-  [[ -d "${project_path}" ]] || continue
-  project="$(basename "${project_path}")"
-  log "Syncing ${project}…"
-  push_project "${project}"
-  log "${project} ✓"
+  log "Syncing gitops…"
+  sync_prefix "gitops" "gitops"
+  log "gitops ✓"
   echo
-done
 
-log "All repos synced."
+  log "Syncing actions…"
+  sync_prefix "actions" "actions"
+  log "actions ✓"
+  echo
+
+  for project_path in "${REPO_ROOT}/projects"/*/; do
+    [[ -d "${project_path}" ]] || continue
+    project="$(basename "${project_path}")"
+    log "Syncing ${project}…"
+    sync_prefix "projects/${project}" "${project}"
+    log "${project} ✓"
+    echo
+  done
+
+  log "All repos synced."
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  resolve_gitea || { echo "ERROR: Gitea is not running." >&2; exit 1; }
+  sync_all
+fi

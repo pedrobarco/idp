@@ -38,7 +38,7 @@ fi
 log "Removing generated secret env files…"
 for dir in \
   "${REPO_ROOT}/bootstrap/dev/cluster-secrets/secrets" \
-  "${REPO_ROOT}/infrastructure/gitea/secrets"; do
+  "${REPO_ROOT}/gitops/infrastructure/gitea/secrets"; do
   [[ -d "${dir}" ]] && find "${dir}" -name '*.env' ! -name '*.env.example' -delete
 done
 

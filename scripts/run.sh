@@ -59,8 +59,8 @@ done
 
 # Generate a shared runner registration token.
 # Both Gitea (env var) and the Actions runner (env var) reference this secret.
-# The secretGenerator in infrastructure/gitea creates the K8s Secret at bootstrap.
-GITEA_SECRETS_DIR="${REPO_ROOT}/infrastructure/gitea/secrets"
+# The secretGenerator in gitops/infrastructure/gitea creates the K8s Secret at bootstrap.
+GITEA_SECRETS_DIR="${REPO_ROOT}/gitops/infrastructure/gitea/secrets"
 mkdir -p "${GITEA_SECRETS_DIR}"
 cat > "${GITEA_SECRETS_DIR}/runner-token.env" <<EOF
 token=$(openssl rand -hex 24)
@@ -73,7 +73,7 @@ BUILD_PIDS=()
 for project_dir in "${REPO_ROOT}"/projects/*/; do
   [[ -f "${project_dir}/Dockerfile" ]] || continue
   project_name="$(basename "${project_dir}")"
-  "${REPO_ROOT}/scripts/build.sh" \
+  "${REPO_ROOT}/actions/build.sh" \
     --repo "${project_name}" --tag latest --context "${project_dir}" &
   BUILD_PIDS+=($!)
 done
@@ -148,7 +148,7 @@ log "Syncing project content to Gitea…"
 # Apply the root Application that tracks applicationsets/.
 # ArgoCD will auto-discover and apply all ApplicationSets in that directory.
 log "Applying root applicationsets Application…"
-kubectl --context "${HUB_CONTEXT}" apply -f "${REPO_ROOT}/applicationsets/applicationsets.yaml"
+kubectl --context "${HUB_CONTEXT}" apply -f "${REPO_ROOT}/gitops/applicationsets/applicationsets.yaml"
 
 log "Done! ArgoCD will now reconcile all workload applications."
 "${SCRIPT_DIR}/status.sh"

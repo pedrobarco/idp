@@ -13,16 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout IDP repo
+      - name: Checkout actions repo
         uses: actions/checkout@v4
         with:
-          repository: admin/idp
+          repository: admin/actions
           ref: main
-          path: .idp
+          path: .actions
       - name: Build and push
         run: |
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
-          .idp/scripts/build.sh \
+          .actions/build.sh \
             --registry "${{ inputs.registry }}" \
             --repo "${REPO_NAME}" \
             --context .

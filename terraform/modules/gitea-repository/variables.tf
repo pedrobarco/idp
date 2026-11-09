@@ -9,9 +9,9 @@ variable "username" {
 }
 
 variable "auto_init" {
-  description = "Whether to auto-initialize the repository."
+  description = "Whether to auto-initialize the repository. Leave false so the first subtree push can create main."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "default_branch" {

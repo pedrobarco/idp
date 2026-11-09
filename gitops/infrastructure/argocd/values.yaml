@@ -6,12 +6,12 @@ configs:
     timeout.reconciliation: 30s
   params:
     server.insecure: true
-  # Credentials must match infrastructure/gitea admin config.
+  # Credentials must match gitops/infrastructure/gitea admin config.
   repositories:
-    idp:
-      url: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+    gitops:
+      url: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
       type: git
-      name: idp
+      name: gitops
       username: admin
       password: admin123
 server:

@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/idp.git
+    repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
     targetRevision: HEAD
     path: applicationsets
     directory:
