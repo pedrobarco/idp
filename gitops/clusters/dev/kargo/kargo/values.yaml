@@ -1,17 +1,36 @@
 api:
   host: kargo.idp.localhost
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 192Mi
   adminAccount:
     enabled: true
     passwordHash: "$2a$10$Zrhhie4vLz5ygtVSaif6o.qN36jgs6vjtMBdM6yrU1FOeiAAMMxOm"
     tokenSigningKey: "iwishtowashmyirishwristwatch"
+  # The browser already reaches Kargo over plain HTTP. Skip a second TLS hop
+  # and the certificate that would come with it.
+  tls:
+    enabled: false
   ingress:
     enabled: true
     ingressClassName: nginx
     annotations:
-      nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+      idp.localhost/credentials-secret: kargo-admin-credentials
+      idp.localhost/credentials-keys: "username,password"
     tls:
       enabled: false
 controller:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
   allowCredentialsOverHTTP: true
   gitClient:
     # Explicitly set before v1.12.0 where the default changes from
@@ -22,3 +41,30 @@ controller:
     namespace: argocd
   rollouts:
     integrationEnabled: true
+garbageCollector:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 192Mi
+managementController:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 192Mi
+externalWebhooksServer:
+  # Nothing sends webhooks. The admission webhook server stays enabled.
+  enabled: false
+webhooksServer:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 192Mi

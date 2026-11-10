@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - ../../../../infrastructure/kargo
+  - admin-credentials.yaml
 
 # Keep inflated charts out of the Git checkout Argo CD caches between builds.
 helmGlobals:
@@ -17,19 +18,7 @@ helmCharts:
     includeCRDs: true
     valuesFile: values.yaml
 
-patches:
-  - path: patches/kargo-ingress.yaml
-    target:
-      kind: Ingress
-      name: kargo-api
-  - target:
-      kind: Secret
-      name: kargo-api
-    patch: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: kargo-api
-      data:
-        username: YWRtaW4=
-        password: YWRtaW4=
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: idp
+    includeSelectors: false

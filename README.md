@@ -78,6 +78,8 @@ Four kind clusters simulate a real multi-cluster environment:
 
 ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that ArgoCD watches.
 
+Argo CD, Gitea, and Kargo set memory requests and limits. Dex, notifications, the Kargo external webhook receiver, and Kargo API TLS are off. Give Docker about **8 GiB**. Image builds still spike above that because the Actions runner uses Docker-in-Docker.
+
 ## Repository Structure
 
 ```
@@ -138,7 +140,7 @@ The Gitea Actions runner is deployed as a pod with a DinD (Docker-in-Docker) sid
 
 Kargo handles continuous delivery. A **Warehouse** watches the container registry for new image tags. When a new tag is detected, Kargo creates a **Freight** and promotes it through a pipeline of **Stages** (one per environment). Each Stage runs promotion steps: `git-clone` → `kustomize-set-image` → `git-commit` → `git-push` → `argocd-update`.
 
-Since the Kind registry is HTTP-only, an nginx-based **TLS reverse proxy** (`registry-tls-proxy`) provides HTTPS access for Kargo's image discovery, which requires TLS. The proxy uses self-signed certificates generated at startup and is deployed in the `registry` namespace.
+Since the Kind registry is HTTP-only, an nginx-based **TLS reverse proxy** (`registry-tls-proxy`) on the dev cluster provides HTTPS for Kargo image discovery. The proxy generates its own certificate when the pod starts. Kargo's admission webhooks use the chart default and ask cert-manager for a certificate. The API itself is HTTP behind the ingress, and the external webhook receiver is off.
 
 See [progressive-delivery.md](docs/progressive-delivery.md) for the full promotion strategy and rollout specification.
 

@@ -1,3 +1,10 @@
+resources:
+  requests:
+    cpu: 50m
+    memory: 192Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
 deployment:
   env:
     - name: GITEA_RUNNER_REGISTRATION_TOKEN
@@ -18,6 +25,14 @@ gitea:
     server:
       DOMAIN: gitea.idp.localhost
       ROOT_URL: http://gitea.idp.localhost
+      DISABLE_SSH: true
+      START_SSH_SERVER: false
+      LFS_START_SERVER: false
+    indexer:
+      ISSUE_INDEXER_TYPE: db
+      REPO_INDEXER_ENABLED: false
+    packages:
+      ENABLED: false
 ingress:
   enabled: true
   className: nginx

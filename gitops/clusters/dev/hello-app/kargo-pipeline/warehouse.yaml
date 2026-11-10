@@ -13,6 +13,6 @@ spec:
         repoURL: registry-tls-proxy.registry.svc.cluster.local/hello-app
         insecureSkipTLSVerify: true
         imageSelectionStrategy: NewestBuild
-        discoveryLimit: 20
+        discoveryLimit: 5
         strictSemvers: false
         allowTags: "^[0-9a-f]{7}$"

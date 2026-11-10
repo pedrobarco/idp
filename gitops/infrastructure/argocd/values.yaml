@@ -4,8 +4,12 @@ configs:
   cm:
     kustomize.buildOptions: --enable-helm
     timeout.reconciliation: 30s
+    # The chart default adds up to 60s of jitter on top of the timeout.
+    timeout.reconciliation.jitter: 0s
   params:
     server.insecure: true
+    # One kind node. Cap concurrent manifest builds so Helm renders do not pile up.
+    reposerver.parallelism.limit: "2"
   # Credentials must match gitops/infrastructure/gitea admin config.
   repositories:
     gitops:
@@ -14,7 +18,50 @@ configs:
       name: gitops
       username: admin
       password: admin123
+dex:
+  enabled: false
+notifications:
+  enabled: false
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
 server:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
   ingress:
     enabled: true
     ingressClassName: nginx
+redis:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+applicationSet:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
