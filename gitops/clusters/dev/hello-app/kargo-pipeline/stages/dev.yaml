@@ -3,6 +3,8 @@ kind: Stage
 metadata:
   name: dev
   namespace: hello-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   requestedFreight:
     - origin:

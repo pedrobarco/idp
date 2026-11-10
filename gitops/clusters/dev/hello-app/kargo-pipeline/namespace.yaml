@@ -1,0 +1,10 @@
+# Argo CD creates this namespace before the Project exists. Kargo only adopts
+# a pre-existing namespace when it already carries the project label.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hello-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    kargo.akuity.io/project: "true"

@@ -4,6 +4,10 @@ kind: Kustomization
 resources:
   - ../../../../infrastructure/kargo
 
+# Keep inflated charts out of the Git checkout Argo CD caches between builds.
+helmGlobals:
+  chartHome: /tmp/kargo-charts
+
 helmCharts:
   - name: kargo
     repo: oci://ghcr.io/akuity/kargo-charts

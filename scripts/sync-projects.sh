@@ -2,23 +2,21 @@
 #
 # sync-projects.sh
 #
-# Publishes each managed folder in this repo to its own Gitea repository.
+# Publishes folders from this repo to Gitea. This repo stays a GitHub
+# history: the script never commits, merges, or adds remotes here.
+#
 #   gitops/            → gitops
 #   actions/           → actions
 #   projects/<name>/   → <name>
 #
-# For every folder: pull commits that exist only on Gitea (for example a
-# Kargo promotion), then push the folder. The first push seeds an empty repo.
-#
-# Repos are created by Terraform (terraform/repositories). This script only
-# moves git history.
+# Each Gitea repo is cloned under .sync/ (gitignored). The folder contents
+# are committed on top of Gitea main and pushed. If that push is not a
+# fast-forward, the script rebases and rewrites the Gitea branch.
 #
 # Usage:
 #   ./scripts/sync-projects.sh
 #
-# Configuration is loaded from scripts/utils.sh
-#
-# Prerequisites: git (with git-subtree)
+# Prerequisites: git, rsync
 #
 set -euo pipefail
 
@@ -31,57 +29,59 @@ gitea_remote_url() {
   echo "http://${GITEA_AUTH}@${GITEA_URL#http://}/${GITEA_ADMIN_USER}/${1}.git"
 }
 
-# Merge a subtree commit into prefix and record the join for the next split.
-join_split() {
-  local prefix="$1"
-  local name="$2"
-  local split_sha="$3"
-  local verb="$4"
-  local head_sha
-  head_sha=$(git -C "${REPO_ROOT}" rev-parse HEAD)
-  git -C "${REPO_ROOT}" \
-    -c user.name="idp" -c user.email="idp@local" \
-    merge --no-ff --allow-unrelated-histories -Xsubtree="${prefix}" \
-    -m "$(printf 'sync: %s %s\n\ngit-subtree-dir: %s\ngit-subtree-mainline: %s\ngit-subtree-split: %s\n' \
-      "${verb}" "${name}" "${prefix}" "${head_sha}" "${split_sha}")" \
-    "${split_sha}"
-}
-
-# Pull Gitea main into prefix when the remote branch exists, then push prefix.
-# Remote names are temporary and removed before returning.
+# Clone or update the Gitea checkout for one folder, then publish it.
 sync_prefix() {
   local prefix="$1"
   local name="$2"
-  local remote remote_name split_sha
+  local remote work parent_head
   remote=$(gitea_remote_url "${name}")
-  remote_name="gitea-${name}"
+  work="${REPO_ROOT}/.sync/${name}"
 
   if [[ ! -d "${REPO_ROOT}/${prefix}" ]]; then
     echo "ERROR: missing ${prefix}" >&2
     return 1
   fi
 
-  if git -C "${REPO_ROOT}" remote get-url "${remote_name}" &>/dev/null; then
-    git -C "${REPO_ROOT}" remote set-url "${remote_name}" "${remote}"
-  else
-    git -C "${REPO_ROOT}" remote add "${remote_name}" "${remote}"
-  fi
+  parent_head=$(git -C "${REPO_ROOT}" rev-parse HEAD)
+  mkdir -p "${REPO_ROOT}/.sync"
 
-  # The published folder history has no common ancestor with this repo until it
-  # is joined back. Record that join so the next sync does not replay it.
-  if git -C "${REPO_ROOT}" ls-remote --exit-code --heads "${remote_name}" main &>/dev/null; then
-    git -C "${REPO_ROOT}" fetch --quiet "${remote_name}" main
-    if ! git -C "${REPO_ROOT}" merge-base --is-ancestor FETCH_HEAD HEAD; then
-      join_split "${prefix}" "${name}" "$(git -C "${REPO_ROOT}" rev-parse FETCH_HEAD)" "pull"
+  if [[ ! -d "${work}/.git" ]]; then
+    rm -rf "${work}"
+    if git ls-remote --exit-code --heads "${remote}" main &>/dev/null; then
+      git clone -q --branch main "${remote}" "${work}"
+    else
+      mkdir -p "${work}"
+      git -C "${work}" init -q -b main
+      git -C "${work}" remote add origin "${remote}"
+    fi
+  else
+    git -C "${work}" remote set-url origin "${remote}"
+    git -C "${work}" fetch -q origin main || true
+    if git -C "${work}" rev-parse --verify --quiet origin/main >/dev/null; then
+      git -C "${work}" checkout -q -B main origin/main
+    else
+      git -C "${work}" checkout -q -B main
     fi
   fi
 
-  split_sha=$(git -C "${REPO_ROOT}" subtree split --prefix="${prefix}")
-  git -C "${REPO_ROOT}" push "${remote_name}" "${split_sha}:refs/heads/main"
-  if ! git -C "${REPO_ROOT}" merge-base --is-ancestor "${split_sha}" HEAD; then
-    join_split "${prefix}" "${name}" "${split_sha}" "record"
+  rsync -a --delete --exclude '.git/' "${REPO_ROOT}/${prefix}/" "${work}/"
+  git -C "${work}" add -A
+  if ! git -C "${work}" diff --cached --quiet; then
+    git -C "${work}" \
+      -c user.name="idp" -c user.email="idp@local" \
+      commit -q -m "sync: update ${name} from ${parent_head}"
   fi
-  git -C "${REPO_ROOT}" remote remove "${remote_name}"
+
+  if git -C "${work}" push -q origin HEAD:main; then
+    return 0
+  fi
+
+  # Gitea moved, or the local checkout diverged. Rebase onto it and rewrite.
+  git -C "${work}" fetch -q origin main
+  if git -C "${work}" rev-parse --verify --quiet origin/main >/dev/null; then
+    git -C "${work}" rebase -q origin/main
+  fi
+  git -C "${work}" push -q --force-with-lease origin HEAD:main
 }
 
 sync_all() {

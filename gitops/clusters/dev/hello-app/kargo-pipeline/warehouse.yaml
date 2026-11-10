@@ -3,6 +3,8 @@ kind: Warehouse
 metadata:
   name: hello-app
   namespace: hello-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   freightCreationPolicy: Automatic
   interval: 30s

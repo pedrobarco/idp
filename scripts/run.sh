@@ -74,7 +74,7 @@ for project_dir in "${REPO_ROOT}"/projects/*/; do
   [[ -f "${project_dir}/Dockerfile" ]] || continue
   project_name="$(basename "${project_dir}")"
   "${REPO_ROOT}/actions/build.sh" \
-    --repo "${project_name}" --tag latest --context "${project_dir}" &
+    --repo "${project_name}" --context "${project_dir}" &
   BUILD_PIDS+=($!)
 done
 

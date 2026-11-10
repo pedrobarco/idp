@@ -35,11 +35,19 @@ if [[ -z "${TAG}" ]]; then
 fi
 
 IMAGE="${REGISTRY}/${REPOSITORY}:${TAG}"
+LATEST="${REGISTRY}/${REPOSITORY}:latest"
 
 echo "==> Building ${IMAGE}…"
 docker build -t "${IMAGE}" "${CONTEXT}"
+if [[ "${TAG}" != "latest" ]]; then
+  docker tag "${IMAGE}" "${LATEST}"
+fi
 
 echo "==> Pushing ${IMAGE}…"
 docker push "${IMAGE}"
+if [[ "${TAG}" != "latest" ]]; then
+  echo "==> Pushing ${LATEST}…"
+  docker push "${LATEST}"
+fi
 
 echo "==> ${REPOSITORY}:${TAG} ✓"

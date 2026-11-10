@@ -24,6 +24,3 @@ patches:
 labels:
   - pairs:
       app.kubernetes.io/env: dev
-images:
-  - name: localhost:5001/hello-app
-    newTag: dbab25f

@@ -16,7 +16,7 @@ secretGenerator:
 helmCharts:
   - name: gitea
     repo: https://dl.gitea.com/charts/
-    version: "12.5.0"
+    version: "12.7.0"
     releaseName: gitea
     namespace: gitea
     includeCRDs: true
