@@ -2,11 +2,7 @@
 #
 # stop.sh
 #
-# Stops all Kind cluster containers and the registry without deleting them.
-# State is preserved — use `start.sh` to resume.
-#
-# Usage:
-#   ./scripts/stop.sh
+# Stops the tools cluster and the registry without deleting them.
 #
 set -euo pipefail
 
@@ -14,23 +10,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=utils.sh
 source "${SCRIPT_DIR}/utils.sh"
 
-log "Stopping Kind cluster containers…"
-for c in "${CLUSTERS[@]}"; do
-  container="${c}-control-plane"
-  if docker ps -q -f "name=^${container}$" | grep -q .; then
-    docker stop "${container}"
-    log "  Stopped ${container}"
-  else
-    log "  ${container} is not running (skipped)"
-  fi
-done
-
-log "Stopping registry container…"
-if docker ps -q -f "name=^${REG_NAME}$" | grep -q .; then
-  docker stop "${REG_NAME}"
-  log "  Stopped ${REG_NAME}"
+if host_exists; then
+  log "Stopping k3d cluster '${HOST_CLUSTER}'…"
+  k3d cluster stop "${HOST_CLUSTER}"
 else
-  log "  ${REG_NAME} is not running (skipped)"
+  log "k3d cluster '${HOST_CLUSTER}' is not present"
 fi
 
-log "All containers stopped. Run 'make start' to resume."
+if docker ps -q -f "name=^${REG_NAME}$" | grep -q .; then
+  log "Stopping registry…"
+  docker stop "${REG_NAME}" >/dev/null
+fi
+
+log "Stopped. Run 'make start' to resume."

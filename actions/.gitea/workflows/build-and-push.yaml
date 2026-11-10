@@ -6,7 +6,7 @@ on:
       registry:
         description: "Registry host"
         type: string
-        default: "kind-registry:5000"
+        default: "k3d-kind-registry:5000"
 
 jobs:
   build-and-push:

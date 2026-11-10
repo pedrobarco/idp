@@ -64,7 +64,8 @@ sync_prefix() {
     fi
   fi
 
-  rsync -a --delete --exclude '.git/' "${REPO_ROOT}/${prefix}/" "${work}/"
+  rsync -a --delete --exclude '.git/' --exclude 'charts/' "${REPO_ROOT}/${prefix}/" "${work}/"
+  find "${work}" -type d -name charts -prune -exec rm -rf {} +
   git -C "${work}" add -A
   if ! git -C "${work}" diff --cached --quiet; then
     git -C "${work}" \

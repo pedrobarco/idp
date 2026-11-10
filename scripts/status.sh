@@ -51,8 +51,9 @@ row() {
 
 # ---------- Helpers -----------------------------------------------------------
 cluster_port() {
-  docker inspect "${1}-control-plane" \
-    --format '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostPort}}' 2>/dev/null || echo "?"
+  local name="${1#vcluster-}"
+  name="${name#k3d-}"
+  cluster_http_port "${name}"
 }
 
 ingress_url() {
@@ -83,6 +84,29 @@ ns_status() {
 
 # ---------- Output -----------------------------------------------------------
 echo ""
+
+# vcluster APIs are only reachable from the laptop through a port-forward.
+PF_PIDS=()
+KUBE_FILES="${KUBECONFIG:-${HOME}/.kube/config}"
+cleanup_pfs() {
+  local pid
+  if [[ ${#PF_PIDS[@]} -eq 0 ]]; then
+    return 0
+  fi
+  for pid in "${PF_PIDS[@]}"; do
+    kill "${pid}" 2>/dev/null || true
+  done
+}
+trap cleanup_pfs EXIT
+for c in "${VCLUSTERS[@]}"; do
+  if kubectl --context "${HOST_CONTEXT}" -n "vcluster-${c}" get "svc/${c}" &>/dev/null; then
+    open_vcluster "${c}"
+    PF_PIDS+=("${VCLUSTER_PF_PID}")
+    KUBE_FILES="${KUBE_FILES}:${VCLUSTER_KUBECONFIG}"
+  fi
+done
+export KUBECONFIG="${KUBE_FILES}"
+
 header
 
 ARGOCD_PASS="$(argocd_admin_pass 2>/dev/null || echo '?')"
@@ -144,7 +168,11 @@ kubectl --context "${HUB_CONTEXT}" -n argocd get applicationsets \
       -l "app.kubernetes.io/name=${appset}" --no-headers \
       -o custom-columns='NAME:.metadata.name,CLUSTER:.metadata.labels.app\.kubernetes\.io/cluster,NS:.spec.destination.namespace,SYNC:.status.sync.status,HEALTH:.status.health.status' \
       2>/dev/null | while read -r name cluster ns sync health; do
-        ctx="kind-${cluster}"
+        if [[ "${cluster}" == "tools" ]]; then
+          ctx="${HOST_CONTEXT}"
+        else
+          ctx="vcluster-${cluster}"
+        fi
         discover_ingress "${ctx}" "${ns}" 2>/dev/null || true
         row "${name}" "${sync}/${health}" "${_DISCOVER_URL:-"-"}" "${_DISCOVER_CREDS}"
       done

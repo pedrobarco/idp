@@ -74,7 +74,7 @@ The exception is coupled applications that must be deployed together (e.g. an AP
 
 ## Current State
 
-The dev stage of the image update lifecycle is operational: CI builds and pushes images → Kargo Warehouse discovers them via the TLS registry proxy → Kargo auto-promotes to dev → ArgoCD syncs. The remaining stages (qa, staging, prod1, prod2) and Argo Rollouts analysis integration are not yet implemented.
+The dev stage of the image update lifecycle is operational: CI builds and pushes images → Kargo Warehouse discovers them via the TLS registry proxy → Kargo auto-promotes to dev → ArgoCD syncs. The remaining stages (qa, stage, prod-1, prod-2) and Argo Rollouts are not yet implemented. hello-app is a Deployment.
 
 ## Acceptance Criteria
 

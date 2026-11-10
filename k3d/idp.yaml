@@ -1,0 +1,29 @@
+# The tools cluster. nonprod and prod are vclusters on this node.
+# `make run` creates the registry, then this cluster.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: idp
+servers: 1
+agents: 0
+ports:
+  # One ingress on the tools cluster. Hostnames select the environment.
+  - port: 80:80
+    nodeFilters:
+      - server:0
+  - port: 443:443
+    nodeFilters:
+      - server:0
+registries:
+  use:
+    - k3d-kind-registry
+  config: k3d/registries.yaml
+options:
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik,servicelb,metrics-server
+        nodeFilters:
+          - server:*
+      - arg: --node-label=ingress-ready=true
+        nodeFilters:
+          - server:*

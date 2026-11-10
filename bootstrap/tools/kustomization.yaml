@@ -1,0 +1,10 @@
+# Bootstrap for the tools cluster.
+# Installs Argo CD, Gitea, and cert-manager before GitOps is available.
+# Each one is clusters/tools/<namespace>/<app>.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../gitops/clusters/tools/argocd/argocd
+  - ../../gitops/clusters/tools/gitea/gitea
+  - ../../gitops/clusters/tools/cert-manager/cert-manager

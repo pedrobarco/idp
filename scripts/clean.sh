@@ -2,10 +2,7 @@
 #
 # clean.sh
 #
-# Tears down the entire IDP local environment using Terraform.
-#
-# Usage:
-#   ./scripts/clean.sh
+# Tears down the tools cluster, its vclusters, and the local registry.
 #
 set -euo pipefail
 
@@ -15,7 +12,6 @@ source "${SCRIPT_DIR}/utils.sh"
 
 TF_DIR="${REPO_ROOT}/terraform"
 
-# ---------- Destroy Gitea repositories (best effort) -------------------------
 if [[ -f "${TF_DIR}/repositories/terraform.tfstate" ]]; then
   log "Destroying Gitea repositories…"
   if resolve_gitea; then
@@ -27,19 +23,19 @@ if [[ -f "${TF_DIR}/repositories/terraform.tfstate" ]]; then
   fi
 fi
 
-# ---------- Destroy clusters + registry via Terraform -------------------------
-if [[ -f "${TF_DIR}/clusters/terraform.tfstate" ]]; then
-  log "Destroying clusters and registry…"
-  [[ -d "${TF_DIR}/clusters/.terraform" ]] || terraform -chdir="${TF_DIR}/clusters" init -input=false
-  terraform -chdir="${TF_DIR}/clusters" destroy -auto-approve -input=false
+if host_exists; then
+  log "Deleting k3d cluster '${HOST_CLUSTER}'…"
+  k3d cluster delete "${HOST_CLUSTER}"
 fi
 
-# ---------- Clean generated secret env files ----------------------------------
+if k3d registry list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "${REG_NAME}"; then
+  log "Deleting registry ${REG_NAME}…"
+  k3d registry delete kind-registry
+fi
+
 log "Removing generated secret env files…"
-for dir in \
-  "${REPO_ROOT}/bootstrap/dev/cluster-secrets/secrets" \
-  "${REPO_ROOT}/gitops/infrastructure/gitea/secrets"; do
-  [[ -d "${dir}" ]] && find "${dir}" -name '*.env' ! -name '*.env.example' -delete
-done
+gitea_secrets="${REPO_ROOT}/gitops/clusters/tools/gitea/gitea/secrets"
+[[ -d "${gitea_secrets}" ]] && find "${gitea_secrets}" -name '*.env' ! -name '*.env.example' -delete
+rm -rf "${REPO_ROOT}/.idp"
 
 log "Teardown complete."

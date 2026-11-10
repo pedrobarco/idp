@@ -3,7 +3,7 @@
   <br><br>
   <strong style="font-size:1.5em;">IDP — Internal Developer Platform</strong>
   <br>
-  <em>A local multi-cluster GitOps platform running on <a href="https://kind.sigs.k8s.io/">kind</a>, managed by <a href="https://argo-cd.readthedocs.io/">ArgoCD</a>.</em>
+  <em>A local multi-cluster GitOps platform running on <a href="https://k3d.io/">k3d</a> and <a href="https://www.vcluster.com/">vcluster</a>, managed by <a href="https://argo-cd.readthedocs.io/">ArgoCD</a>.</em>
 </p>
 
 ## Quick Start
@@ -20,63 +20,40 @@ make clean    # tear everything down
 
 ```mermaid
 graph TB
-    subgraph docker["Docker Network (kind)"]
-
-        subgraph dev["dev cluster :80"]
-            ArgoCD
-            Gitea
-            Kargo
-            runner[Gitea Actions Runner]
-            tls_proxy[Registry TLS Proxy]
-            nginx_dev[ingress-nginx]
-            rollouts_dev[Argo Rollouts]
-            app_dev[hello-app<br/><i>dev/dev</i>]
+    subgraph tools["tools cluster (k3d idp)"]
+        ArgoCD
+        Gitea
+        Kargo
+        runner[Gitea Actions Runner]
+        tls_proxy[Registry TLS Proxy]
+        nginx[ingress-nginx :80]
+        subgraph nonprod["vcluster nonprod"]
+            app_dev[hello-app<br/><i>dev</i>]
+            app_qa[hello-app<br/><i>qa</i>]
+            app_stage[hello-app<br/><i>stage</i>]
         end
-
-        subgraph staging["staging cluster :8080"]
-            nginx_stg[ingress-nginx]
-            rollouts_stg[Argo Rollouts]
-            app_qa[hello-app<br/><i>staging/qa</i>]
-            app_stage[hello-app<br/><i>staging/stage</i>]
+        subgraph prod["vcluster prod"]
+            app_p1[hello-app<br/><i>prod-1</i>]
+            app_p2[hello-app<br/><i>prod-2</i>]
         end
-
-        subgraph prod1["prod-1 cluster :8081"]
-            nginx_p1[ingress-nginx]
-            rollouts_p1[Argo Rollouts]
-            app_p1[hello-app<br/><i>prod-1/prod</i>]
-        end
-
-        subgraph prod2["prod-2 cluster :8082"]
-            nginx_p2[ingress-nginx]
-            rollouts_p2[Argo Rollouts]
-            app_p2[hello-app<br/><i>prod-2/prod</i>]
-        end
-
-        registry["kind-registry :5001"]
     end
-
-    Gitea -- "repo sync" --> ArgoCD
-    Gitea -- "triggers" --> runner
+    registry["k3d-kind-registry :5001"]
     runner -- "build & push" --> registry
     tls_proxy -- "HTTPS proxy" --> registry
     Kargo -- "discovers images" --> tls_proxy
-    Kargo -- "promotes freight" --> Gitea
-    ArgoCD -- "manages" --> dev
-    ArgoCD -- "manages" --> staging
-    ArgoCD -- "manages" --> prod1
-    ArgoCD -- "manages" --> prod2
+    ArgoCD -- "manages" --> nonprod
+    ArgoCD -- "manages" --> prod
 ```
 
-Four kind clusters simulate a real multi-cluster environment:
+One k3d node is the tools cluster. Two vclusters on that node hold the environments: `nonprod` has namespaces `dev`, `qa`, and `stage`; `prod` has `prod-1` and `prod-2`. Promotion is still dev → qa → stage → prod-1 → prod-2.
 
-| Cluster   | Role                                      | Port    |
-| --------- | ----------------------------------------- | ------- |
-| `dev`     | Hub — runs ArgoCD, Gitea, Kargo + Actions runner | `:80`   |
-| `staging` | Remote — stage + qa namespaces            | `:8080` |
-| `prod-1`  | Remote — prod namespace                   | `:8081` |
-| `prod-2`  | Remote — prod namespace                   | `:8082` |
+| Cluster | What it is | Runs | Port |
+| ------- | ---------- | ---- | ---- |
+| `tools` | the k3d cluster, named `idp` | Argo CD, Gitea, Kargo, Actions runner, registry proxy, the only ingress-nginx | `:80` |
+| `nonprod` | vcluster | hello-app in `dev`, `qa`, and `stage` | `:80` |
+| `prod` | vcluster | hello-app in `prod-1` and `prod-2`, one replica each | `:80` |
 
-ArgoCD on the dev cluster manages all clusters. Gitea hosts the git repos that ArgoCD watches.
+The tools ingress serves every hostname on port 80. A hostname is `<svc>.<ns>.<cluster>.idp.localhost`, for example `hello-app.qa.nonprod.idp.localhost` and `kargo.kargo.tools.idp.localhost`. Argo CD on the tools cluster manages itself and both vclusters.
 
 Argo CD, Gitea, and Kargo set memory requests and limits. Dex, notifications, the Kargo external webhook receiver, and Kargo API TLS are off. Give Docker about **8 GiB**. Image builds still spike above that because the Actions runner uses Docker-in-Docker.
 
@@ -85,9 +62,9 @@ Argo CD, Gitea, and Kargo set memory requests and limits. Dex, notifications, th
 ```
 .
 ├── scripts/                  # Playground scripts (run, clean, sync, status, stop, start)
-├── terraform/                # Infrastructure as code (clusters, repositories, modules)
-├── bootstrap/                # One-shot infra per cluster (applied by run.sh)
-│   └── <cluster>/            # Kustomization referencing gitops/infrastructure/ bases
+├── k3d/                      # Tools cluster config
+├── terraform/                # Gitea repositories
+├── bootstrap/                # Tools bootstrap and shared vcluster values
 ├── docs/                     # Platform and delivery specs
 │
 ├── actions/                  # Shared CI, published as the actions repo
@@ -95,19 +72,16 @@ Argo CD, Gitea, and Kargo set memory requests and limits. Dex, notifications, th
 │   └── .gitea/workflows/build-and-push.yaml
 │
 ├── gitops/                   # Desired state, published as the gitops repo
-│   ├── infrastructure/       # Shared infra bases (Kustomize / Helm)
-│   │   └── <component>/      # e.g. argocd, ingress-nginx, argo-rollouts, gitea, …
+│   ├── infrastructure/       # Shared bases (namespace and manifests)
+│   │   └── <app>/
 │   ├── applicationsets/      # ArgoCD ApplicationSet declarations
-│   │   └── <component>.yaml  # Git directory generator → clusters/*/*/<component>
+│   │   └── <app>.yaml        # Git directory generator → clusters/*/*/<app>
 │   ├── apps/                 # App base manifests (Deployment, Service, Ingress, …)
 │   │   └── <app>/
-│   └── clusters/             # Per-target overlays (ArgoCD's source of truth)
+│   └── clusters/             # One overlay per target
 │       └── <cluster>/
-│           ├── <component>/  # Infra overlay (e.g. ingress-nginx, argo-rollouts, registry)
-│           ├── <namespace>/
-│           │   └── <app>/    # App overlay with per-env patches
-│           └── <app>/
-│               └── kargo-pipeline/  # Kargo promotion pipeline (project, warehouse, stages)
+│           └── <namespace>/
+│               └── <app>/    # clusters/tools/kargo/kargo, clusters/nonprod/qa/hello-app, …
 │
 ├── projects/                 # Application source code + CI workflows
 │   └── <app>/
@@ -119,20 +93,18 @@ Argo CD, Gitea, and Kargo set memory requests and limits. Dex, notifications, th
 
 ### Setup Flow (`make run`)
 
-0. **Terraform** — provision Docker network, registry, and 4 Kind clusters
-1. **Secrets** — generate placeholder `.env` files for cluster credentials and a runner registration token for Gitea Actions
-2. **Bootstrap** — build images + apply `bootstrap/<cluster>` in parallel
-3. **Wait** — ArgoCD + Gitea rollouts
-4. **Credentials** — generate real SA tokens, re-apply cluster secrets
-5. **Repos** — provision Gitea repositories via Terraform
-6. **Sync** — publish `gitops/`, `actions/`, and each `projects/*` to its own Gitea repo
-7. **Activate** — apply root Application that tracks `gitops/applicationsets/`
+0. **k3d** — create the registry and the tools cluster
+1. **Bootstrap** — build images, install Argo CD, Gitea, and cert-manager, and install the two vclusters
+2. **Register** — give Argo CD a cluster secret for the tools cluster and each vcluster from the vcluster admin client certificate
+3. **Repos** — provision Gitea repositories via Terraform
+4. **Sync** — publish `gitops/`, `actions/`, and each `projects/*` to its own Gitea repo
+5. **Activate** — apply the root Application that tracks `gitops/applicationsets/`
 
 ### CI Pipeline
 
-Each project in `projects/` includes a Gitea Actions workflow (`.gitea/workflows/ci.yaml`) that runs on push to `main`. The workflow calls the shared build-and-push workflow in the `actions` repo (`actions/.gitea/workflows/build-and-push.yaml`), which runs `actions/build.sh` and pushes the image to the local registry (`kind-registry:5000`).
+Each project in `projects/` includes a Gitea Actions workflow (`.gitea/workflows/ci.yaml`) that runs on push to `main`. The workflow calls the shared build-and-push workflow in the `actions` repo (`actions/.gitea/workflows/build-and-push.yaml`), which runs `actions/build.sh` and pushes the image to the local registry (`k3d-kind-registry:5000`).
 
-The Gitea Actions runner is deployed as a pod with a DinD (Docker-in-Docker) sidecar on the dev cluster, managed by ArgoCD via the `gitea-actions` ApplicationSet. Runner configuration and DinD daemon config are generated by Kustomize `configMapGenerator` from plain files (`config.yaml`, `daemon.json`). The runner registration token is a shared secret generated at setup time and consumed by both Gitea and the runner via `secretGenerator` in the Gitea kustomization.
+The Gitea Actions runner is deployed as a pod with a DinD (Docker-in-Docker) sidecar on the tools cluster, managed by ArgoCD via the `gitea-actions` ApplicationSet. Runner configuration and DinD daemon config are generated by Kustomize `configMapGenerator` from plain files (`config.yaml`, `daemon.json`). The runner registration token is a shared secret generated at setup time and consumed by both Gitea and the runner via `secretGenerator` in the Gitea kustomization.
 
 > **Note:** Cross-repo checkout in Gitea Actions requires `ref: main` to work around a missing API endpoint ([go-gitea/gitea#29654](https://github.com/go-gitea/gitea/issues/29654)).
 
@@ -140,19 +112,19 @@ The Gitea Actions runner is deployed as a pod with a DinD (Docker-in-Docker) sid
 
 Kargo handles continuous delivery. A **Warehouse** watches the container registry for new image tags. When a new tag is detected, Kargo creates a **Freight** and promotes it through a pipeline of **Stages** (one per environment). Each Stage runs promotion steps: `git-clone` → `kustomize-set-image` → `git-commit` → `git-push` → `argocd-update`.
 
-Since the Kind registry is HTTP-only, an nginx-based **TLS reverse proxy** (`registry-tls-proxy`) on the dev cluster provides HTTPS for Kargo image discovery. The proxy generates its own certificate when the pod starts. Kargo's admission webhooks use the chart default and ask cert-manager for a certificate. The API itself is HTTP behind the ingress, and the external webhook receiver is off.
+Since the registry is HTTP-only, an nginx-based **TLS reverse proxy** (`registry-tls-proxy`) on the tools cluster provides HTTPS for Kargo image discovery. The proxy generates its own certificate when the pod starts. Kargo's admission webhooks use the chart default and ask cert-manager for a certificate. The API itself is HTTP behind the ingress, and the external webhook receiver is off.
 
 See [progressive-delivery.md](docs/progressive-delivery.md) for the full promotion strategy and rollout specification.
 
 ### GitOps Loop
 
-The `gitops/applicationsets/` directory contains ApplicationSet declarations. Each one uses a **git directory generator** that scans `clusters/*/*/<app>`. The directory path encodes the target inside the GitOps repo:
+The `gitops/applicationsets/` directory contains ApplicationSet declarations. Each one uses a **git directory generator** that scans `clusters/*/*/<app>`. Every target uses the same path:
 
 ```
 clusters/<cluster>/<namespace>/<app>/kustomization.yaml
 ```
 
-Each matching directory becomes an ArgoCD Application. The kustomization references a base from `apps/<app>/` and applies per-target patches (replicas, env vars, image tags, ingress hosts).
+`tools` is the k3d cluster. `nonprod` and `prod` are the vclusters. Each matching directory becomes an ArgoCD Application. The kustomization references a shared base and applies the patches for that target. Gitea is the exception that bootstrap applies directly: its runner token is generated locally and is not in the GitOps repo.
 
 ### Adding a New App
 
@@ -171,39 +143,30 @@ Each matching directory becomes an ArgoCD Application. The kustomization referen
 ```
   NAME                                     STATUS             URL                                        CREDENTIALS
   ──────────────────────────────────────── ────────────────── ────────────────────────────────────────── ────────────────────
-  argocd                                   Healthy            http://argocd.idp.localhost                admin / ••••••••
-  gitea                                    Healthy            http://gitea.idp.localhost                 admin / ••••••••
-
-  argo-rollouts
-  argo-rollouts-argo-rollouts-dev          Synced/Healthy     -                                          -
-  argo-rollouts-argo-rollouts-prod-1       Synced/Healthy     -                                          -
-  argo-rollouts-argo-rollouts-prod-2       Synced/Healthy     -                                          -
-  argo-rollouts-argo-rollouts-staging      Synced/Healthy     -                                          -
+  argocd                                   Healthy            http://argocd.argocd.tools.idp.localhost       admin / ••••••••
+  gitea                                    Healthy            http://gitea.gitea.tools.idp.localhost         admin / ••••••••
 
   gitea-actions
-  gitea-actions-gitea-dev                  Synced/Healthy     -                                          -
+  gitea-actions-gitea-tools                Synced/Healthy     -                                          -
 
   hello-app
-  hello-app-dev-dev                        Synced/Healthy     http://hello-app.dev.idp.localhost         -
-  hello-app-prod-prod-1                    Synced/Healthy     http://hello-app.prod.idp.localhost:8081   -
-  hello-app-prod-prod-2                    Synced/Healthy     http://hello-app.prod.idp.localhost:8082   -
-  hello-app-qa-staging                     Synced/Healthy     http://hello-app.qa.idp.localhost:8080     -
-  hello-app-stage-staging                  Synced/Healthy     http://hello-app.stage.idp.localhost:8080  -
+  hello-app-dev-nonprod                    Synced/Healthy     http://hello-app.dev.nonprod.idp.localhost -
+  hello-app-qa-nonprod                     Synced/Healthy     http://hello-app.qa.nonprod.idp.localhost  -
+  hello-app-stage-nonprod                  Synced/Healthy     http://hello-app.stage.nonprod.idp.localhost -
+  hello-app-prod-1-prod                    Synced/Healthy     http://hello-app.prod-1.prod.idp.localhost -
+  hello-app-prod-2-prod                    Synced/Healthy     http://hello-app.prod-2.prod.idp.localhost -
 
   ingress-nginx
-  ingress-nginx-ingress-nginx-dev          Synced/Healthy     -                                          -
-  ingress-nginx-ingress-nginx-prod-1       Synced/Healthy     -                                          -
-  ingress-nginx-ingress-nginx-prod-2       Synced/Healthy     -                                          -
-  ingress-nginx-ingress-nginx-staging      Synced/Healthy     -                                          -
+  ingress-nginx-ingress-nginx-tools        Synced/Healthy     -                                          -
 
   kargo
-  kargo-kargo-dev                          Synced/Healthy     http://kargo.idp.localhost                 admin / ••••••••
+  kargo-kargo-tools                        Synced/Healthy     http://kargo.kargo.tools.idp.localhost     admin / ••••••••
 
   kargo-pipeline
-  kargo-pipeline-hello-app-dev             Synced/Healthy     -                                          -
+  kargo-pipeline-hello-app-tools           Synced/Healthy     -                                          -
 
   registry
-  registry-registry-dev                    Synced/Healthy     -                                          -
+  registry-registry-tools                  Synced/Healthy     -                                          -
 ```
 
 ## Commands
@@ -221,7 +184,7 @@ Each matching directory becomes an ArgoCD Application. The kustomization referen
 ## Prerequisites
 
 - [docker](https://docs.docker.com/get-docker/)
-- [kind](https://kind.sigs.k8s.io/)
+- [k3d](https://k3d.io/)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 - [kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/)
 - [helm](https://helm.sh/docs/intro/install/)

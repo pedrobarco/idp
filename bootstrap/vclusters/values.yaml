@@ -1,0 +1,17 @@
+# Shared vcluster settings. Workloads run on the k3d node.
+# Every vcluster syncs Ingresses to the tools cluster, which has the only ingress-nginx.
+controlPlane:
+  distro:
+    k8s:
+      enabled: true
+sync:
+  toHost:
+    ingresses:
+      enabled: true
+  fromHost:
+    ingressClasses:
+      enabled: true
+    nodes:
+      enabled: true
+      selector:
+        all: true

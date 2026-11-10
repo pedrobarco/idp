@@ -5,18 +5,3 @@ namespace: cert-manager
 
 resources:
   - namespace.yaml
-
-helmCharts:
-  - name: cert-manager
-    repo: https://charts.jetstack.io
-    version: v1.21.3
-    releaseName: cert-manager
-    namespace: cert-manager
-    includeCRDs: true
-    valuesInline:
-      crds:
-        enabled: true
-      startupapicheck:
-        enabled: false
-      prometheus:
-        enabled: false

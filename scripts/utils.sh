@@ -8,22 +8,121 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # ---------- Clusters ----------------------------------------------------------
-CLUSTERS=(dev staging prod-1 prod-2)
-HUB_CLUSTER="dev"
-HUB_CONTEXT="kind-${HUB_CLUSTER}"
+# One k3d node is the hub. The environment clusters are vclusters on it.
+HOST_CLUSTER="idp"
+HOST_CONTEXT="k3d-${HOST_CLUSTER}"
+VCLUSTERS=(nonprod prod)
+HUB_CONTEXT="${HOST_CONTEXT}"
+VCLUSTER_VERSION="0.37.7"
 
 # ---------- Registry ----------------------------------------------------------
-REG_NAME="kind-registry"
+REG_NAME="k3d-kind-registry"
 REG_PORT="5001"
 REG_INTERNAL_PORT="5000"
 REG_HOST="localhost:${REG_PORT}"
+
+# Every ingress is served by the tools cluster controller on port 80.
+cluster_http_port() {
+  echo 80
+}
+
+vcluster_api_port() {
+  case "$1" in
+    nonprod) echo 18443 ;;
+    prod) echo 18444 ;;
+  esac
+}
 
 # ---------- Logging -----------------------------------------------------------
 log() { echo "==> $*"; }
 
 # ---------- Cluster helpers ---------------------------------------------------
-cluster_exists() {
-  kind get clusters 2>/dev/null | grep -qx "$1"
+host_exists() {
+  k3d cluster list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "${HOST_CLUSTER}"
+}
+
+# Start a port-forward to a vcluster API and write a localhost kubeconfig.
+# Prints the port-forward pid. Sets VCLUSTER_KUBECONFIG.
+open_vcluster() {
+  local name="$1"
+  local ns="vcluster-${name}"
+  local port
+  port="$(vcluster_api_port "${name}")"
+  mkdir -p "${REPO_ROOT}/.idp"
+  VCLUSTER_KUBECONFIG="${REPO_ROOT}/.idp/${name}.kubeconfig"
+  python3 - "${name}" "${port}" "${VCLUSTER_KUBECONFIG}" <<'PY'
+import base64, json, subprocess, sys
+name, port, dest = sys.argv[1:]
+raw = subprocess.check_output([
+    "kubectl", "--context", "k3d-idp", "-n", f"vcluster-{name}",
+    "get", "secret", f"vc-{name}", "-o", "json",
+])
+data = json.loads(raw)["data"]
+text = base64.b64decode(data["config"]).decode()
+lines = []
+for line in text.splitlines():
+    if "server:" in line:
+        lines.append(f"    server: https://127.0.0.1:{port}")
+    elif "certificate-authority-data:" in line:
+        lines.append("    insecure-skip-tls-verify: true")
+    else:
+        lines.append(line)
+text = "\n".join(lines) + "\n"
+text = text.replace(
+    "name: kubernetes-super-admin@kubernetes", f"name: vcluster-{name}")
+text = text.replace(
+    "current-context: kubernetes-super-admin@kubernetes",
+    f"current-context: vcluster-{name}")
+text = text.replace("cluster: kubernetes", f"cluster: vcluster-{name}")
+text = text.replace("name: kubernetes\n", f"name: vcluster-{name}\n")
+open(dest, "w").write(text)
+PY
+  kubectl --context "${HOST_CONTEXT}" -n "${ns}" port-forward "svc/${name}" "${port}:443" >/dev/null &
+  VCLUSTER_PF_PID=$!
+}
+
+close_vcluster() {
+  local pid="$1"
+  [[ -n "${pid}" ]] && kill "${pid}" 2>/dev/null || true
+}
+
+# Apply an Argo CD cluster secret for one vcluster, using its admin client cert.
+register_vcluster() {
+  local name="$1"
+  python3 - "${name}" <<'PY' | kubectl --context k3d-idp apply -f -
+import json, subprocess, sys
+name = sys.argv[1]
+ns = f"vcluster-{name}"
+raw = subprocess.check_output([
+    "kubectl", "--context", "k3d-idp", "-n", ns,
+    "get", "secret", f"vc-{name}", "-o", "json",
+])
+data = json.loads(raw)["data"]
+config = {
+    "tlsClientConfig": {
+        "insecure": False,
+        "caData": data["certificate-authority"],
+        "certData": data["client-certificate"],
+        "keyData": data["client-key"],
+    }
+}
+secret = {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+        "name": f"cluster-{name}",
+        "namespace": "argocd",
+        "labels": {"argocd.argoproj.io/secret-type": "cluster"},
+    },
+    "stringData": {
+        "name": name,
+        # The API certificate lists <name>.<namespace>, not the cluster.local form.
+        "server": f"https://{name}.{ns}",
+        "config": json.dumps(config),
+    },
+}
+json.dump(secret, sys.stdout)
+PY
 }
 
 wait_for_rollout() {
