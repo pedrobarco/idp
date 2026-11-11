@@ -113,13 +113,13 @@ ARGOCD_PASS="$(argocd_admin_pass 2>/dev/null || echo '?')"
 ARGOCD_URL=$(ingress_url "${HUB_CONTEXT}" argocd argocd-server 2>/dev/null || echo "-")
 ARGOCD_STATUS=$(ns_status "${HUB_CONTEXT}" argocd)
 
-GITEA_USER="$(gitea_admin_user 2>/dev/null || echo '?')"
-GITEA_PASS="$(gitea_admin_pass 2>/dev/null || echo '?')"
-GITEA_URL=$(ingress_url "${HUB_CONTEXT}" gitea gitea 2>/dev/null || echo "-")
-GITEA_STATUS=$(ns_status "${HUB_CONTEXT}" gitea)
+FORGEJO_USER="$(forgejo_admin_user 2>/dev/null || echo '?')"
+FORGEJO_PASS="$(forgejo_admin_pass 2>/dev/null || echo '?')"
+FORGEJO_URL=$(ingress_url "${HUB_CONTEXT}" forgejo forgejo 2>/dev/null || echo "-")
+FORGEJO_STATUS=$(ns_status "${HUB_CONTEXT}" forgejo)
 
 row "argocd" "${ARGOCD_STATUS}" "${ARGOCD_URL}" "admin / ${ARGOCD_PASS}"
-row "gitea"  "${GITEA_STATUS}"  "${GITEA_URL}"  "${GITEA_USER} / ${GITEA_PASS}"
+row "forgejo"  "${FORGEJO_STATUS}"  "${FORGEJO_URL}"  "${FORGEJO_USER} / ${FORGEJO_PASS}"
 
 # Discover ingress info by label in a namespace.
 # Sets: _DISCOVER_URL, _DISCOVER_CREDS

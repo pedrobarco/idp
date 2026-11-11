@@ -16,7 +16,7 @@ jobs:
       - name: Checkout actions repo
         uses: actions/checkout@v4
         with:
-          repository: admin/actions
+          repository: idp/actions
           ref: main
           path: .actions
       - name: Build and push

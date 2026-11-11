@@ -10,7 +10,7 @@ terraform {
 # The provider base_url must be a plain localhost URL (no subdomain)
 # because the go-gitea/gitea provider rejects URLs that match both
 # "localhost" and "." (RFC 2606 validation). Use kubectl port-forward
-# to expose Gitea on a local port before running terraform apply.
+# to expose Forgejo on a local port before running terraform apply.
 provider "gitea" {
   base_url = var.gitea_url
   username = var.gitea_username

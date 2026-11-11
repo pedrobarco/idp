@@ -16,7 +16,7 @@ spec:
     spec:
       vars:
         - name: gitRepo
-          value: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
+          value: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
         - name: imageRepo
           value: registry-tls-proxy.registry.svc.cluster.local/hello-app
       steps:

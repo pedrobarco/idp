@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gitea-actions-runner
+  name: forgejo-actions-runner
   labels:
-    app: gitea-actions-runner
+    app: forgejo-actions-runner
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: gitea-actions-runner
+      app: forgejo-actions-runner
   template:
     metadata:
       labels:
-        app: gitea-actions-runner
+        app: forgejo-actions-runner
     spec:
       restartPolicy: Always
       volumes:
@@ -22,22 +22,31 @@ spec:
           emptyDir: {}
         - name: runner-config
           configMap:
-            name: gitea-actions-runner-config
+            name: forgejo-actions-runner-config
         - name: dind-config
           configMap:
-            name: gitea-actions-dind-config
+            name: forgejo-actions-dind-config
       containers:
         - name: runner
-          image: gitea/act_runner:nightly
+          image: data.forgejo.org/forgejo/runner:13.2.1
           command:
-            - sh
+            - /bin/bash
             - -c
             - |
-              while ! nc -z localhost 2376 </dev/null; do
+              while ! (echo >/dev/tcp/127.0.0.1/2376) >/dev/null 2>&1; do
                 echo 'waiting for docker daemon...'
                 sleep 5
               done
-              /sbin/tini -- run.sh
+              cp /config/config.yaml /data/config.yml
+              cat >> /data/config.yml <<EOF
+              server:
+                connections:
+                  forgejo:
+                    url: ${FORGEJO_INSTANCE_URL}
+                    uuid: ${FORGEJO_RUNNER_UUID}
+                    token: ${FORGEJO_RUNNER_SECRET}
+              EOF
+              exec /bin/forgejo-runner --config /data/config.yml daemon
           env:
             - name: DOCKER_HOST
               value: tcp://localhost:2376
@@ -45,15 +54,18 @@ spec:
               value: /certs/client
             - name: DOCKER_TLS_VERIFY
               value: "1"
-            - name: GITEA_INSTANCE_URL
-              value: http://gitea-http.gitea.svc.cluster.local:3000
-            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+            - name: FORGEJO_INSTANCE_URL
+              value: http://forgejo-http.forgejo.svc.cluster.local:3000
+            - name: FORGEJO_RUNNER_UUID
               valueFrom:
                 secretKeyRef:
-                  name: gitea-actions-runner-token
+                  name: forgejo-actions-runner-token
+                  key: uuid
+            - name: FORGEJO_RUNNER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: forgejo-actions-runner-token
                   key: token
-            - name: CONFIG_FILE
-              value: /config/config.yaml
           volumeMounts:
             - name: docker-certs
               mountPath: /certs

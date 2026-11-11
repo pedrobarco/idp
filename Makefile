@@ -15,7 +15,7 @@ stop: ## Stop clusters without losing state
 start: ## Start previously stopped clusters
 	@./scripts/start.sh
 
-sync: ## Sync repos to Gitea
+sync: ## Sync repos to Forgejo
 	@./scripts/sync-projects.sh
 
 status: ## Show platform status (applications, URLs, credentials)

@@ -7,7 +7,7 @@ spec:
   goTemplate: true
   generators:
     - git:
-        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
         revision: HEAD
         directories:
           - path: "clusters/*/*/registry"
@@ -21,7 +21,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
         targetRevision: HEAD
         path: "{{ .path.path }}"
       destination:

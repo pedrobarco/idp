@@ -4,6 +4,10 @@ runner:
   file: .runner
   capacity: 1
   timeout: 1h
+  # Job images for runs-on. Setup registers this same list.
+  # This image includes Node (actions/checkout) and the Docker client (build.sh).
+  labels:
+    - "ubuntu-latest:docker://docker.gitea.com/runner-images:ubuntu-latest"
 cache:
   enabled: false
 container:

@@ -1,15 +1,15 @@
 variable "gitea_url" {
-  description = "Base URL of the Gitea instance (e.g. http://gitea.dev.localhost)."
+  description = "Base URL of the Forgejo instance (e.g. http://localhost:3000)."
   type        = string
 }
 
 variable "gitea_username" {
-  description = "Gitea admin username."
+  description = "Forgejo admin username."
   type        = string
 }
 
 variable "gitea_password" {
-  description = "Gitea admin password."
+  description = "Forgejo admin password."
   type        = string
   sensitive   = true
 }

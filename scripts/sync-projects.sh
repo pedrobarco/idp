@@ -2,16 +2,16 @@
 #
 # sync-projects.sh
 #
-# Publishes folders from this repo to Gitea. This repo stays a GitHub
+# Publishes folders from this repo to Forgejo. This repo stays a GitHub
 # history: the script never commits, merges, or adds remotes here.
 #
 #   gitops/            → gitops
 #   actions/           → actions
 #   projects/<name>/   → <name>
 #
-# Each Gitea repo is cloned under .sync/ (gitignored). The folder contents
-# are committed on top of Gitea main and pushed. If that push is not a
-# fast-forward, the script rebases and rewrites the Gitea branch.
+# Each Forgejo repo is cloned under .sync/ (gitignored). The folder contents
+# are committed on top of Forgejo main and pushed. If that push is not a
+# fast-forward, the script rebases and rewrites the Forgejo branch.
 #
 # Usage:
 #   ./scripts/sync-projects.sh
@@ -24,17 +24,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=utils.sh
 source "${SCRIPT_DIR}/utils.sh"
 
-# Build the Gitea remote URL for a given repo name.
-gitea_remote_url() {
-  echo "http://${GITEA_AUTH}@${GITEA_URL#http://}/${GITEA_ADMIN_USER}/${1}.git"
+# Build the Forgejo remote URL for a given repo name.
+forgejo_remote_url() {
+  echo "http://${FORGEJO_AUTH}@${FORGEJO_URL#http://}/${FORGEJO_ADMIN_USER}/${1}.git"
 }
 
-# Clone or update the Gitea checkout for one folder, then publish it.
+# Clone or update the Forgejo checkout for one folder, then publish it.
 sync_prefix() {
   local prefix="$1"
   local name="$2"
   local remote work parent_head
-  remote=$(gitea_remote_url "${name}")
+  remote=$(forgejo_remote_url "${name}")
   work="${REPO_ROOT}/.sync/${name}"
 
   if [[ ! -d "${REPO_ROOT}/${prefix}" ]]; then
@@ -77,7 +77,7 @@ sync_prefix() {
     return 0
   fi
 
-  # Gitea moved, or the local checkout diverged. Rebase onto it and rewrite.
+  # Forgejo moved, or the local checkout diverged. Rebase onto it and rewrite.
   git -C "${work}" fetch -q origin main
   if git -C "${work}" rev-parse --verify --quiet origin/main >/dev/null; then
     git -C "${work}" rebase -q origin/main
@@ -111,6 +111,6 @@ sync_all() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  resolve_gitea || { echo "ERROR: Gitea is not running." >&2; exit 1; }
+  resolve_forgejo || { echo "ERROR: Forgejo is not running." >&2; exit 1; }
   sync_all
 fi

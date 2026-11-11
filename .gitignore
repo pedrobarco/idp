@@ -25,7 +25,7 @@ __MACOSX/
 gitops/infrastructure/*/charts/
 gitops/clusters/*/*/*/charts/
 
-# Gitea checkouts used by scripts/sync-projects.sh. Never part of this repo.
+# Forgejo checkouts used by scripts/sync-projects.sh. Never part of this repo.
 .sync/
 
 # === Kustomize secret env files ===

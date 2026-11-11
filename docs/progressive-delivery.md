@@ -34,7 +34,7 @@ Kargo's built-in promotion steps handle the git workflow for each environment tr
 
 1. `git-clone` — check out the IDP repo
 2. `kustomize-set-image` — set the image tag in the target overlay
-3. `git-commit` + `git-push` — commit and push to Gitea
+3. `git-commit` + `git-push` — commit and push to Forgejo
 4. `argocd-update` — trigger ArgoCD sync and wait for health
 
 ArgoCD auto-sync remains enabled. Kargo pushes to git, ArgoCD detects the change and syncs. If ArgoCD syncs before Kargo's `argocd-update` step runs, Kargo detects the app is already synced and moves on. No conflict.
@@ -66,12 +66,12 @@ Between scheduled windows, multiple versions may pass the previous stage. Kargo 
 
 ### CI workflows
 
-CI remains in Gitea Actions. Kargo handles all of CD.
+CI remains in Forgejo Actions. Kargo handles all of CD.
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `actions/.gitea/workflows/build-and-push.yaml` | `workflow_call` (from project CI) | Builds and pushes a container image via `actions/build.sh` |
-| `projects/<app>/.gitea/workflows/ci.yaml` | Push to main | Calls the actions repo workflow for the project |
+| `actions/.forgejo/workflows/build-and-push.yaml` | `workflow_call` (from project CI) | Builds and pushes a container image via `actions/build.sh` |
+| `projects/<app>/.forgejo/workflows/ci.yaml` | Push to main | Calls the actions repo workflow for the project |
 
 ### Rollout strategy
 
@@ -107,16 +107,16 @@ Argo Rollouts supports multiple analysis providers. Two were considered for runn
 
 **Job metric (chosen):** The AnalysisRun spins up a Kubernetes Job directly in the cluster. The Job runs the test container against the live service. The AnalysisRun watches the Job natively — exit 0 means pass, non-zero means fail. No external orchestration, no polling, no race conditions.
 
-**Web metric (Gitea Actions trigger):** The AnalysisRun calls the Gitea API to dispatch a workflow (`POST /api/v1/repos/{owner}/{repo}/actions/dispatches`) and then polls for the result. This requires two metrics (trigger + poll), correlation of the dispatched run with the poll response, and handling of race conditions if multiple runs overlap.
+**Web metric (Forgejo Actions trigger):** The AnalysisRun calls the Forgejo API to dispatch a workflow (`POST /api/v1/repos/{owner}/{repo}/actions/dispatches`) and then polls for the result. This requires two metrics (trigger + poll), correlation of the dispatched run with the poll response, and handling of race conditions if multiple runs overlap.
 
 The Job metric is the better fit because:
 
 - Tests run inside the cluster against cluster-internal services — no external CI features are needed.
 - The AnalysisRun has native lifecycle control over the Job (timeout, retry, cleanup).
-- There is no dependency on Gitea availability during the analysis phase.
+- There is no dependency on Forgejo availability during the analysis phase.
 - The feedback loop is faster — no HTTP polling interval overhead.
 
-The Gitea webhook approach is reserved for notifications (e.g. alerting on rollback) rather than driving the analysis itself.
+The Forgejo webhook approach is reserved for notifications (e.g. alerting on rollback) rather than driving the analysis itself.
 
 ### Failure handling
 
@@ -172,4 +172,4 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 
 ### End-to-end
 - [ ] The full promotion chain (dev → qa → staging → prod1 → prod2) is operational.
-- [x] CI remains in Gitea Actions. Kargo handles all of CD (dev pipeline end-to-end).
+- [x] CI remains in Forgejo Actions. Kargo handles all of CD (dev pipeline end-to-end).

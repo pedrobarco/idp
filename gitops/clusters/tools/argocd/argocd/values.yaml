@@ -10,13 +10,13 @@ configs:
     server.insecure: true
     # One kind node. Cap concurrent manifest builds so Helm renders do not pile up.
     reposerver.parallelism.limit: "2"
-  # Credentials must match the Gitea admin config in clusters/tools/gitea/gitea.
+  # Credentials must match the Forgejo admin config in clusters/tools/forgejo/forgejo.
   repositories:
     gitops:
-      url: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
+      url: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
       type: git
       name: gitops
-      username: admin
+      username: idp
       password: admin123
 dex:
   enabled: false

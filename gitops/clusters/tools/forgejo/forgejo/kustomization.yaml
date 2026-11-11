@@ -1,23 +1,23 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: gitea
+namespace: forgejo
 
 resources:
-  - ../../../../infrastructure/gitea
+  - ../../../../infrastructure/forgejo
 
 secretGenerator:
-  - name: gitea-actions-runner-token
+  - name: forgejo-actions-runner-token
     envs:
       - secrets/runner-token.env
     options:
       disableNameSuffixHash: true
 
 helmCharts:
-  - name: gitea
-    repo: https://dl.gitea.com/charts/
-    version: "12.7.0"
-    releaseName: gitea
-    namespace: gitea
+  - name: forgejo
+    repo: oci://code.forgejo.org/forgejo-helm
+    version: "17.3.2"
+    releaseName: forgejo
+    namespace: forgejo
     includeCRDs: true
     valuesFile: values.yaml

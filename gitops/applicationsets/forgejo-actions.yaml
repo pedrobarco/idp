@@ -1,31 +1,31 @@
 # Git directory generator: discovers deployment targets from clusters/ directory.
-# Path: clusters/<cluster>/<namespace>/gitea-actions
-# Add a new directory → gitea-actions auto-deploys there.
+# Path: clusters/<cluster>/<namespace>/forgejo-actions
+# Add a new directory → forgejo-actions auto-deploys there.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: gitea-actions
+  name: forgejo-actions
   namespace: argocd
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   generators:
     - git:
-        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
         revision: HEAD
         directories:
-          - path: "clusters/*/*/gitea-actions"
+          - path: "clusters/*/*/forgejo-actions"
   template:
     metadata:
-      name: "gitea-actions-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
+      name: "forgejo-actions-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
       labels:
-        app.kubernetes.io/name: gitea-actions
+        app.kubernetes.io/name: forgejo-actions
         app.kubernetes.io/part-of: idp
         app.kubernetes.io/cluster: "{{ index .path.segments 1 }}"
     spec:
       project: default
       source:
-        repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/gitops.git
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
         targetRevision: HEAD
         path: "{{ .path.path }}"
       destination:

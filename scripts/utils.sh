@@ -89,6 +89,20 @@ close_vcluster() {
 # Apply an Argo CD cluster secret for one vcluster, using its admin client cert.
 register_vcluster() {
   local name="$1"
+  local ns="vcluster-${name}"
+  local _ found=0
+  # The StatefulSet is ready before vcluster writes its client certificate.
+  for _ in $(seq 1 60); do
+    if kubectl --context "${HOST_CONTEXT}" -n "${ns}" get secret "vc-${name}" &>/dev/null; then
+      found=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "${found}" -ne 1 ]]; then
+    echo "ERROR: secret ${ns}/vc-${name} was not created within 120s." >&2
+    return 1
+  fi
   python3 - "${name}" <<'PY' | kubectl --context k3d-idp apply -f -
 import json, subprocess, sys
 name = sys.argv[1]
@@ -132,15 +146,16 @@ wait_for_rollout() {
 }
 
 # ---------- Credential helpers (read from cluster on demand) ------------------
-# Reads an env var from the configure-gitea init container.
-_gitea_init_env() {
-  kubectl --context "${HUB_CONTEXT}" -n gitea \
-    get deployment gitea \
-    -o jsonpath="{.spec.template.spec.initContainers[?(@.name==\"configure-gitea\")].env[?(@.name==\"$1\")].value}" 2>/dev/null
+# The Forgejo chart stores the admin user in a secret. The configure-gitea
+# init container only holds a secretKeyRef, not the password itself.
+_forgejo_admin_field() {
+  kubectl --context "${HUB_CONTEXT}" -n forgejo \
+    get secret forgejo-admin \
+    -o jsonpath="{.data.$1}" 2>/dev/null | base64 -d 2>/dev/null
 }
 
-gitea_admin_user() { _gitea_init_env GITEA_ADMIN_USERNAME; }
-gitea_admin_pass() { _gitea_init_env GITEA_ADMIN_PASSWORD; }
+forgejo_admin_user() { _forgejo_admin_field username; }
+forgejo_admin_pass() { _forgejo_admin_field password; }
 
 argocd_admin_pass() {
   kubectl --context "${HUB_CONTEXT}" -n argocd \
@@ -148,42 +163,100 @@ argocd_admin_pass() {
     -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null
 }
 
-# ---------- Gitea helpers -----------------------------------------------------
-# Port used by the Gitea port-forward.
-GITEA_LOCAL_PORT="${GITEA_LOCAL_PORT:-3000}"
+# ---------- Forgejo helpers -----------------------------------------------------
+# Port used by the Forgejo port-forward.
+FORGEJO_LOCAL_PORT="${FORGEJO_LOCAL_PORT:-3000}"
 
 # PID of the port-forward process (empty if not started by us).
-_GITEA_PORTFWD_PID=""
+_FORGEJO_PORTFWD_PID=""
 
 # Cleanup handler: kills the port-forward if we started it.
-_cleanup_gitea_portfwd() {
-  if [[ -n "${_GITEA_PORTFWD_PID}" ]]; then
-    kill "${_GITEA_PORTFWD_PID}" 2>/dev/null || true
-    _GITEA_PORTFWD_PID=""
+_cleanup_forgejo_portfwd() {
+  if [[ -n "${_FORGEJO_PORTFWD_PID}" ]]; then
+    kill "${_FORGEJO_PORTFWD_PID}" 2>/dev/null || true
+    _FORGEJO_PORTFWD_PID=""
   fi
 }
 
-# Lazily resolve Gitea config and start a port-forward.
-# Sets: GITEA_ADMIN_USER, GITEA_ADMIN_PASS, GITEA_URL, GITEA_AUTH
+# Lazily resolve Forgejo config and start a port-forward.
+# Sets: FORGEJO_ADMIN_USER, FORGEJO_ADMIN_PASS, FORGEJO_URL, FORGEJO_AUTH
 # The port-forward is automatically cleaned up on script exit.
-resolve_gitea() {
-  [[ -n "${GITEA_ADMIN_USER:-}" ]] && return 0
-  if ! kubectl --context "${HUB_CONTEXT}" -n gitea get deployment gitea &>/dev/null; then
+resolve_forgejo() {
+  [[ -n "${FORGEJO_ADMIN_USER:-}" ]] && return 0
+  if ! kubectl --context "${HUB_CONTEXT}" -n forgejo get deployment forgejo &>/dev/null; then
     return 1
   fi
-  GITEA_ADMIN_USER="$(gitea_admin_user)"
-  GITEA_ADMIN_PASS="$(gitea_admin_pass)"
-  GITEA_AUTH="${GITEA_ADMIN_USER}:${GITEA_ADMIN_PASS}"
+  FORGEJO_ADMIN_USER="$(forgejo_admin_user)"
+  FORGEJO_ADMIN_PASS="$(forgejo_admin_pass)"
+  FORGEJO_AUTH="${FORGEJO_ADMIN_USER}:${FORGEJO_ADMIN_PASS}"
 
-  # Start a port-forward if one isn't already running on GITEA_LOCAL_PORT.
-  if ! curl -sf "http://localhost:${GITEA_LOCAL_PORT}/api/v1/version" &>/dev/null; then
-    log "Starting port-forward to Gitea on port ${GITEA_LOCAL_PORT}…"
-    kubectl --context "${HUB_CONTEXT}" -n gitea \
-      port-forward svc/gitea-http "${GITEA_LOCAL_PORT}:3000" &>/dev/null &
-    _GITEA_PORTFWD_PID=$!
-    trap _cleanup_gitea_portfwd EXIT
+  # Start a port-forward if one isn't already running on FORGEJO_LOCAL_PORT.
+  if ! curl -sf "http://localhost:${FORGEJO_LOCAL_PORT}/api/v1/version" &>/dev/null; then
+    log "Starting port-forward to Forgejo on port ${FORGEJO_LOCAL_PORT}…"
+    kubectl --context "${HUB_CONTEXT}" -n forgejo \
+      port-forward svc/forgejo-http "${FORGEJO_LOCAL_PORT}:3000" &>/dev/null &
+    _FORGEJO_PORTFWD_PID=$!
+    trap _cleanup_forgejo_portfwd EXIT
     sleep 2
   fi
 
-  GITEA_URL="http://localhost:${GITEA_LOCAL_PORT}"
+  FORGEJO_URL="http://localhost:${FORGEJO_LOCAL_PORT}"
+}
+
+# Comma-separated runner labels from the runner config. That file is the
+# list Forgejo stores at registration and the list the runner uses for jobs.
+_forgejo_runner_labels() {
+  python3 - "${REPO_ROOT}/gitops/infrastructure/forgejo-actions/config.yaml" <<'PY'
+import sys
+in_runner = False
+in_labels = False
+labels = []
+for raw in open(sys.argv[1]):
+    line = raw.split("#", 1)[0].rstrip()
+    if not line.strip():
+        continue
+    indent = len(line) - len(line.lstrip(" "))
+    stripped = line.lstrip()
+    if indent == 0:
+        in_runner = stripped.startswith("runner:")
+        in_labels = False
+        continue
+    if not in_runner:
+        continue
+    if stripped.startswith("labels:"):
+        in_labels = True
+        continue
+    if not in_labels:
+        continue
+    if not stripped.startswith("-"):
+        break
+    value = stripped[1:].strip().strip('"').strip("'")
+    if value:
+        labels.append(value)
+print(",".join(labels))
+PY
+}
+
+# Register the global runner with the shared offline secret.
+# The secret file is local and gitignored; this does not print it.
+register_forgejo_runner() {
+  local env_file token labels
+  env_file="${REPO_ROOT}/gitops/clusters/tools/forgejo/forgejo/secrets/runner-token.env"
+  token=$(sed -n 's/^token=//p' "${env_file}")
+  if [[ ! "${token}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: runner secret must be 40 hex characters." >&2
+    return 1
+  fi
+  labels=$(_forgejo_runner_labels)
+  if [[ -z "${labels}" ]]; then
+    echo "ERROR: runner config has no labels." >&2
+    return 1
+  fi
+  log "Registering the Forgejo Actions runner…"
+  kubectl --context "${HUB_CONTEXT}" -n forgejo exec deploy/forgejo -c forgejo -- \
+    forgejo forgejo-cli actions register \
+    --secret "${token}" \
+    --name idp \
+    --labels "${labels}" \
+    >/dev/null
 }

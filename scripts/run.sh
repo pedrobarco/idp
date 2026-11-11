@@ -47,14 +47,26 @@ else
   log "k3d cluster '${HOST_CLUSTER}' already exists"
 fi
 
-# ---------- 1. Runner token ---------------------------------------------------
-GITEA_SECRETS_DIR="${REPO_ROOT}/gitops/clusters/tools/gitea/gitea/secrets"
-mkdir -p "${GITEA_SECRETS_DIR}"
-if [[ ! -f "${GITEA_SECRETS_DIR}/runner-token.env" ]]; then
-  cat > "${GITEA_SECRETS_DIR}/runner-token.env" <<EOF
-token=$(openssl rand -hex 24)
+# ---------- 1. Runner secret --------------------------------------------------
+# Forgejo offline registration wants a 40-character hex secret. The runner
+# UUID is the UUID encoding of that secret's first 16 bytes.
+FORGEJO_SECRETS_DIR="${REPO_ROOT}/gitops/clusters/tools/forgejo/forgejo/secrets"
+mkdir -p "${FORGEJO_SECRETS_DIR}"
+runner_token=""
+runner_uuid=""
+if [[ -f "${FORGEJO_SECRETS_DIR}/runner-token.env" ]]; then
+  runner_token=$(sed -n 's/^token=//p' "${FORGEJO_SECRETS_DIR}/runner-token.env")
+  runner_uuid=$(sed -n 's/^uuid=//p' "${FORGEJO_SECRETS_DIR}/runner-token.env")
+fi
+if [[ ! "${runner_token}" =~ ^[0-9a-f]{40}$ || -z "${runner_uuid}" ]]; then
+  runner_token=$(openssl rand -hex 20)
+  runner_uuid=$(python3 -c 'import sys, uuid; print(uuid.UUID(bytes=sys.argv[1][:16].encode()))' "${runner_token}")
+  cat > "${FORGEJO_SECRETS_DIR}/runner-token.env" <<EOF
+token=${runner_token}
+uuid=${runner_uuid}
 EOF
 fi
+unset runner_token runner_uuid
 
 # ---------- 2. Images + host bootstrap + vclusters ----------------------------
 log "Building images and bootstrapping the tools cluster…"
@@ -94,8 +106,13 @@ done
 
 # ---------- 3. Wait for the hub ----------------------------------------------
 wait_for_rollout "${HOST_CONTEXT}" argocd argocd-server &
-wait_for_rollout "${HOST_CONTEXT}" gitea gitea &
-wait
+argocd_wait=$!
+wait_for_rollout "${HOST_CONTEXT}" forgejo forgejo &
+forgejo_wait=$!
+wait "${argocd_wait}"
+wait "${forgejo_wait}"
+
+register_forgejo_runner
 
 # ---------- 4. Register clusters with Argo CD --------------------------------
 log "Registering the tools cluster and vclusters with Argo CD…"
@@ -127,18 +144,18 @@ for c in "${VCLUSTERS[@]}"; do
   close_vcluster "${VCLUSTER_PF_PID}"
 done
 
-# ---------- 5. Provision Gitea repos via Terraform ----------------------------
-resolve_gitea || { echo "ERROR: Gitea is not running." >&2; exit 1; }
+# ---------- 5. Provision Forgejo repos via Terraform ---------------------------
+resolve_forgejo || { echo "ERROR: Forgejo is not running." >&2; exit 1; }
 
-log "Provisioning Gitea repositories…"
+log "Provisioning Forgejo repositories…"
 [[ -d "${TF_DIR}/repositories/.terraform" ]] || terraform -chdir="${TF_DIR}/repositories" init -input=false
 terraform -chdir="${TF_DIR}/repositories" apply -auto-approve -input=false \
-  -var "gitea_url=${GITEA_URL}" \
-  -var "gitea_username=${GITEA_ADMIN_USER}" \
-  -var "gitea_password=${GITEA_ADMIN_PASS}"
+  -var "gitea_url=${FORGEJO_URL}" \
+  -var "gitea_username=${FORGEJO_ADMIN_USER}" \
+  -var "gitea_password=${FORGEJO_ADMIN_PASS}"
 
-# ---------- 6. Push content to Gitea repos ------------------------------------
-log "Syncing project content to Gitea…"
+# ---------- 6. Push content to Forgejo repos -----------------------------------
+log "Syncing project content to Forgejo…"
 "${SCRIPT_DIR}/sync-projects.sh"
 
 # ---------- 7. Activate GitOps -----------------------------------------------
