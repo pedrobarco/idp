@@ -15,4 +15,5 @@ spec:
         imageSelectionStrategy: NewestBuild
         discoveryLimit: 5
         strictSemvers: false
-        allowTags: "^[0-9a-f]{7}$"
+        allowTagsRegexes:
+          - "^[0-9a-f]{7}$"

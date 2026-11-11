@@ -12,7 +12,7 @@ helmGlobals:
 helmCharts:
   - name: kargo
     repo: oci://ghcr.io/akuity/kargo-charts
-    version: "1.10.2"
+    version: "1.12.5"
     releaseName: kargo
     namespace: kargo
     includeCRDs: true

@@ -32,6 +32,10 @@ controller:
       cpu: 500m
       memory: 384Mi
   allowCredentialsOverHTTP: true
+  reconcilers:
+    warehouses:
+      # The chart default is 5m, which would ignore the Warehouse interval.
+      minReconciliationInterval: 30s
   gitClient:
     # Explicitly set before v1.12.0 where the default changes from
     # AlwaysRebase to RebaseOrMerge.
