@@ -21,6 +21,8 @@ spec:
           value: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
         - name: imageRepo
           value: registry-tls-proxy.registry.svc.cluster.local/hello-app
+        - name: appName
+          value: hello-app-prod-2-prod
       steps:
         - uses: git-clone
           config:
@@ -46,6 +48,36 @@ spec:
         - uses: argocd-update
           config:
             apps:
-              - name: hello-app-prod-2-prod
+              - name: ${{ vars.appName }}
                 sources:
                   - repoURL: ${{ vars.gitRepo }}
+        - uses: argocd-wait
+          as: wait
+          retry:
+            timeout: 10m
+          config:
+            apps:
+              - name: ${{ vars.appName }}
+        - uses: http
+          as: assert-image
+          retry:
+            timeout: 10m
+          config:
+            method: GET
+            url: https://kubernetes.default.svc/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/${{ vars.appName }}
+            insecureSkipTLSVerify: true
+            timeout: 20s
+            pollInterval: 15s
+            headers:
+              - name: Authorization
+                value: Bearer ${{ secret('application-reader').token }}
+            successExpression: >
+              response.status == 200 &&
+              response.body?.status?.health?.status == "Healthy" &&
+              response.body?.status?.sync?.status == "Synced" &&
+              "localhost:5001/hello-app:${{ imageFrom(vars.imageRepo).Tag }}" in
+              response.body?.status?.summary?.images
+            failureExpression: >
+              response.body?.status?.health?.status == "Degraded" ||
+              response.body?.status?.operationState?.phase == "Failed" ||
+              response.body?.status?.operationState?.phase == "Error"

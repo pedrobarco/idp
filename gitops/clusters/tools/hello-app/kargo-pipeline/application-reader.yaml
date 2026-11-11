@@ -1,0 +1,38 @@
+# The http promotion step reads one Application from the Kubernetes API.
+# The token controller fills .data.token after this Secret is created.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: application-reader
+  namespace: hello-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: application-reader
+  namespace: hello-app
+  annotations:
+    kubernetes.io/service-account.name: application-reader
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hello-app-application-reader
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hello-app-application-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hello-app-application-reader
+subjects:
+  - kind: ServiceAccount
+    name: application-reader
+    namespace: hello-app

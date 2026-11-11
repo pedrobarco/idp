@@ -6,6 +6,7 @@ resources:
   - project-config.yaml
   - warehouse.yaml
   - credentials.yaml
+  - application-reader.yaml
   - stages/dev.yaml
   - stages/qa.yaml
   - stages/stage.yaml

@@ -109,7 +109,7 @@ The Forgejo Actions runner is deployed as a pod with a DinD (Docker-in-Docker) s
 
 ### CD Pipeline
 
-Kargo handles continuous delivery. A **Warehouse** watches the container registry for new image tags. When a new tag is detected, Kargo creates a **Freight** and promotes it through a pipeline of **Stages** (one per environment). Each Stage runs promotion steps: `git-clone` → `kustomize-set-image` → `git-commit` → `git-push` → `argocd-update`.
+Kargo handles continuous delivery. A **Warehouse** watches the container registry for new image tags. When a new tag is detected, Kargo creates a **Freight** and promotes it through a pipeline of **Stages** (one per environment). Each Stage runs promotion steps: `git-clone` → `kustomize-set-image` → `git-commit` → `git-push` → `argocd-update` → `argocd-wait` → an `http` check that the Application reports the freight image.
 
 Since the registry is HTTP-only, an nginx-based **TLS reverse proxy** (`registry-tls-proxy`) on the tools cluster provides HTTPS for Kargo image discovery. The proxy generates its own certificate when the pod starts. Kargo's admission webhooks use the chart default and ask cert-manager for a certificate. The API itself is HTTP behind the ingress, and the external webhook receiver is off.
 
