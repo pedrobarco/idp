@@ -29,6 +29,23 @@ forgejo_remote_url() {
   echo "http://${FORGEJO_AUTH}@${FORGEJO_URL#http://}/${FORGEJO_ADMIN_USER}/${1}.git"
 }
 
+# Fetch origin/main when that branch exists. An empty Forgejo repo has no
+# main yet: ls-remote exits 2 and there is nothing to fetch. Any other
+# failure, such as auth or a down server, stops the sync.
+fetch_origin_main() {
+  local work="$1"
+  local status=0
+  git -C "${work}" ls-remote --exit-code --heads origin main >/dev/null || status=$?
+  if [[ "${status}" -eq 0 ]]; then
+    git -C "${work}" fetch -q origin main
+  elif [[ "${status}" -eq 2 ]]; then
+    return 0
+  else
+    echo "ERROR: failed to read main from the Forgejo remote." >&2
+    return 1
+  fi
+}
+
 # Clone or update the Forgejo checkout for one folder, then publish it.
 sync_prefix() {
   local prefix="$1"
@@ -56,7 +73,7 @@ sync_prefix() {
     fi
   else
     git -C "${work}" remote set-url origin "${remote}"
-    git -C "${work}" fetch -q origin main || true
+    fetch_origin_main "${work}"
     if git -C "${work}" rev-parse --verify --quiet origin/main >/dev/null; then
       git -C "${work}" checkout -q -B main origin/main
     else
@@ -78,7 +95,7 @@ sync_prefix() {
   fi
 
   # Forgejo moved, or the local checkout diverged. Rebase onto it and rewrite.
-  git -C "${work}" fetch -q origin main
+  fetch_origin_main "${work}"
   if git -C "${work}" rev-parse --verify --quiet origin/main >/dev/null; then
     git -C "${work}" rebase -q origin/main
   fi
