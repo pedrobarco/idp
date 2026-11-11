@@ -19,7 +19,8 @@ spec:
     metadata:
       name: "hello-app-{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
       annotations:
-        kargo.akuity.io/authorized-stage: hello-app:dev
+        # Kargo 1.10 accepts one project:stage value. The stage name is the namespace.
+        kargo.akuity.io/authorized-stage: "hello-app:{{ index .path.segments 2 }}"
       labels:
         app.kubernetes.io/name: hello-app
         app.kubernetes.io/part-of: idp

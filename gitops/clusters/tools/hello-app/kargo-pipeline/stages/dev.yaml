@@ -47,4 +47,3 @@ spec:
               - name: hello-app-dev-nonprod
                 sources:
                   - repoURL: ${{ vars.gitRepo }}
-                    desiredRevision: ${{ outputs.commit.commit }}

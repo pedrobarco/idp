@@ -10,3 +10,16 @@ spec:
     - stageSelector:
         name: dev
       autoPromotionEnabled: true
+    # Each later stage waits for its Promote button.
+    - stageSelector:
+        name: qa
+      autoPromotionEnabled: false
+    - stageSelector:
+        name: stage
+      autoPromotionEnabled: false
+    - stageSelector:
+        name: prod-1
+      autoPromotionEnabled: false
+    - stageSelector:
+        name: prod-2
+      autoPromotionEnabled: false
