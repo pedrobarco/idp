@@ -4,7 +4,7 @@
 #
 # Creates the tools cluster, two vclusters, bootstraps the tools, and activates GitOps.
 #
-# Prerequisites: k3d, kubectl, kustomize, helm, docker, curl, git, terraform, python3
+# Prerequisites: k3d, kubectl, kustomize, helm, docker, curl, git, python3
 #
 set -euo pipefail
 
@@ -12,10 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=utils.sh
 source "${SCRIPT_DIR}/utils.sh"
 
-TF_DIR="${REPO_ROOT}/terraform"
-
 # ---------- check prerequisites ---------------------------------------------
-REQUIRED_TOOLS=(k3d kubectl kustomize helm docker curl git terraform python3)
+REQUIRED_TOOLS=(k3d kubectl kustomize helm docker curl git python3)
 missing=()
 for tool in "${REQUIRED_TOOLS[@]}"; do
   if ! command -v "${tool}" &>/dev/null; then
@@ -49,7 +47,8 @@ fi
 
 # ---------- 1. Runner secret --------------------------------------------------
 # Forgejo offline registration wants a 40-character hex secret. The runner
-# UUID is the UUID encoding of that secret's first 16 bytes.
+# UUID is the UUID encoding of that secret's first 16 bytes. Labels are copied
+# from the runner config on every run so registration matches that file.
 FORGEJO_SECRETS_DIR="${REPO_ROOT}/gitops/clusters/tools/forgejo/forgejo/secrets"
 mkdir -p "${FORGEJO_SECRETS_DIR}"
 runner_token=""
@@ -61,25 +60,42 @@ fi
 if [[ ! "${runner_token}" =~ ^[0-9a-f]{40}$ || -z "${runner_uuid}" ]]; then
   runner_token=$(openssl rand -hex 20)
   runner_uuid=$(python3 -c 'import sys, uuid; print(uuid.UUID(bytes=sys.argv[1][:16].encode()))' "${runner_token}")
-  cat > "${FORGEJO_SECRETS_DIR}/runner-token.env" <<EOF
+fi
+runner_labels=$(
+  awk '
+    BEGIN { in_runner=0; in_labels=0; out="" }
+    /^[^ #]/ {
+      if ($0 ~ /^runner:/) { in_runner=1; in_labels=0; next }
+      in_runner=0
+      in_labels=0
+    }
+    in_runner && /^[[:space:]]*labels:/ { in_labels=1; next }
+    in_labels && /^[[:space:]]*-/ {
+      line=$0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      gsub(/"/, "", line)
+      if (out != "") out = out ","
+      out = out line
+      next
+    }
+    in_labels { exit }
+    END { print out }
+  ' "${REPO_ROOT}/gitops/infrastructure/forgejo-actions/config.yaml"
+)
+if [[ -z "${runner_labels}" ]]; then
+  echo "ERROR: runner config has no labels." >&2
+  exit 1
+fi
+cat > "${FORGEJO_SECRETS_DIR}/runner-token.env" <<EOF
 token=${runner_token}
 uuid=${runner_uuid}
+labels=${runner_labels}
 EOF
-fi
-unset runner_token runner_uuid
+unset runner_token runner_uuid runner_labels
 
-# ---------- 2. Images + host bootstrap + vclusters ----------------------------
-log "Building images and bootstrapping the tools cluster…"
-
-BUILD_PIDS=()
-for project_dir in "${REPO_ROOT}"/projects/*/; do
-  [[ -f "${project_dir}/Dockerfile" ]] || continue
-  project_name="$(basename "${project_dir}")"
-  "${REPO_ROOT}/actions/build.sh" \
-    --repo "${project_name}" --context "${project_dir}" &
-  BUILD_PIDS+=($!)
-done
-
+# ---------- 2. Bootstrap + vclusters ------------------------------------------
+log "Bootstrapping the tools cluster…"
+kubectl --context "${HOST_CONTEXT}" -n forgejo delete job forgejo-runner-register --ignore-not-found >/dev/null 2>&1 || true
 kustomize build --enable-helm "${REPO_ROOT}/bootstrap/tools" | \
   kubectl --context "${HOST_CONTEXT}" apply --server-side -f -
 
@@ -96,7 +112,6 @@ for c in "${VCLUSTERS[@]}"; do
   PIDS+=($!)
 done
 for pid in "${PIDS[@]}"; do wait "${pid}"; done
-for pid in "${BUILD_PIDS[@]}"; do wait "${pid}"; done
 
 log "Waiting for vclusters…"
 for c in "${VCLUSTERS[@]}"; do
@@ -107,12 +122,12 @@ done
 # ---------- 3. Wait for the hub ----------------------------------------------
 wait_for_rollout "${HOST_CONTEXT}" argocd argocd-server &
 argocd_wait=$!
-wait_for_rollout "${HOST_CONTEXT}" forgejo forgejo &
-forgejo_wait=$!
+log "Waiting for the Forgejo runner registration…"
+kubectl --context "${HOST_CONTEXT}" -n forgejo wait \
+  --for=condition=complete job/forgejo-runner-register --timeout=300s &
+runner_wait=$!
 wait "${argocd_wait}"
-wait "${forgejo_wait}"
-
-register_forgejo_runner
+wait "${runner_wait}"
 
 # ---------- 4. Register clusters with Argo CD --------------------------------
 log "Registering the tools cluster and vclusters with Argo CD…"
@@ -144,15 +159,8 @@ for c in "${VCLUSTERS[@]}"; do
   close_vcluster "${VCLUSTER_PF_PID}"
 done
 
-# ---------- 5. Provision Forgejo repos via Terraform ---------------------------
-resolve_forgejo || { echo "ERROR: Forgejo is not running." >&2; exit 1; }
-
-log "Provisioning Forgejo repositories…"
-[[ -d "${TF_DIR}/repositories/.terraform" ]] || terraform -chdir="${TF_DIR}/repositories" init -input=false
-terraform -chdir="${TF_DIR}/repositories" apply -auto-approve -input=false \
-  -var "gitea_url=${FORGEJO_URL}" \
-  -var "gitea_username=${FORGEJO_ADMIN_USER}" \
-  -var "gitea_password=${FORGEJO_ADMIN_PASS}"
+# ---------- 5. Provision Forgejo repos ----------------------------------------
+provision_forgejo_repos
 
 # ---------- 6. Push content to Forgejo repos -----------------------------------
 log "Syncing project content to Forgejo…"

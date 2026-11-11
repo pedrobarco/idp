@@ -10,19 +10,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=utils.sh
 source "${SCRIPT_DIR}/utils.sh"
 
-TF_DIR="${REPO_ROOT}/terraform"
-
-if [[ -f "${TF_DIR}/repositories/terraform.tfstate" ]]; then
-  log "Destroying Forgejo repositories…"
-  if resolve_forgejo; then
-    [[ -d "${TF_DIR}/repositories/.terraform" ]] || terraform -chdir="${TF_DIR}/repositories" init -input=false
-    terraform -chdir="${TF_DIR}/repositories" destroy -auto-approve -input=false \
-      -var "gitea_url=${FORGEJO_URL}" \
-      -var "gitea_username=${FORGEJO_ADMIN_USER}" \
-      -var "gitea_password=${FORGEJO_ADMIN_PASS}" || true
-  fi
-fi
-
 if host_exists; then
   log "Deleting k3d cluster '${HOST_CLUSTER}'…"
   k3d cluster delete "${HOST_CLUSTER}"

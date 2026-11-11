@@ -203,60 +203,36 @@ resolve_forgejo() {
   FORGEJO_URL="http://localhost:${FORGEJO_LOCAL_PORT}"
 }
 
-# Comma-separated runner labels from the runner config. That file is the
-# list Forgejo stores at registration and the list the runner uses for jobs.
-_forgejo_runner_labels() {
-  python3 - "${REPO_ROOT}/gitops/infrastructure/forgejo-actions/config.yaml" <<'PY'
-import sys
-in_runner = False
-in_labels = False
-labels = []
-for raw in open(sys.argv[1]):
-    line = raw.split("#", 1)[0].rstrip()
-    if not line.strip():
-        continue
-    indent = len(line) - len(line.lstrip(" "))
-    stripped = line.lstrip()
-    if indent == 0:
-        in_runner = stripped.startswith("runner:")
-        in_labels = False
-        continue
-    if not in_runner:
-        continue
-    if stripped.startswith("labels:"):
-        in_labels = True
-        continue
-    if not in_labels:
-        continue
-    if not stripped.startswith("-"):
-        break
-    value = stripped[1:].strip().strip('"').strip("'")
-    if value:
-        labels.append(value)
-print(",".join(labels))
-PY
+# Create one empty repo owned by the Forgejo admin. 201 is created, 409 already exists.
+_forgejo_create_repo() {
+  local user="$1" pass="$2" name="$3" code
+  code=$(kubectl --context "${HUB_CONTEXT}" -n forgejo exec deploy/forgejo -c forgejo -- \
+    env FORGEJO_USER="${user}" FORGEJO_PASS="${pass}" FORGEJO_REPO="${name}" \
+    sh -c 'curl -sS -o /dev/null -w "%{http_code}" -u "${FORGEJO_USER}:${FORGEJO_PASS}" -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/user/repos -d "{\"name\":\"${FORGEJO_REPO}\",\"private\":false,\"auto_init\":false,\"default_branch\":\"main\"}"')
+  case "${code}" in
+    201) log "Created Forgejo repo ${name}" ;;
+    409) log "Forgejo repo ${name} already exists" ;;
+    *)
+      echo "ERROR: creating Forgejo repo ${name} returned HTTP ${code}." >&2
+      return 1
+      ;;
+  esac
 }
 
-# Register the global runner with the shared offline secret.
-# The secret file is local and gitignored; this does not print it.
-register_forgejo_runner() {
-  local env_file token labels
-  env_file="${REPO_ROOT}/gitops/clusters/tools/forgejo/forgejo/secrets/runner-token.env"
-  token=$(sed -n 's/^token=//p' "${env_file}")
-  if [[ ! "${token}" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "ERROR: runner secret must be 40 hex characters." >&2
+# Create the repos setup publishes: gitops, actions, and each projects/<name>.
+provision_forgejo_repos() {
+  local user pass project_path
+  user="$(forgejo_admin_user)"
+  pass="$(forgejo_admin_pass)"
+  if [[ -z "${user}" || -z "${pass}" ]]; then
+    echo "ERROR: Forgejo admin credentials are unavailable." >&2
     return 1
   fi
-  labels=$(_forgejo_runner_labels)
-  if [[ -z "${labels}" ]]; then
-    echo "ERROR: runner config has no labels." >&2
-    return 1
-  fi
-  log "Registering the Forgejo Actions runner…"
-  kubectl --context "${HUB_CONTEXT}" -n forgejo exec deploy/forgejo -c forgejo -- \
-    forgejo forgejo-cli actions register \
-    --secret "${token}" \
-    --name idp \
-    --labels "${labels}" \
-    >/dev/null
+  log "Creating Forgejo repositories…"
+  _forgejo_create_repo "${user}" "${pass}" gitops
+  _forgejo_create_repo "${user}" "${pass}" actions
+  for project_path in "${REPO_ROOT}/projects"/*/; do
+    [[ -d "${project_path}" ]] || continue
+    _forgejo_create_repo "${user}" "${pass}" "$(basename "${project_path}")"
+  done
 }
