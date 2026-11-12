@@ -2,7 +2,7 @@
 
 ## Context
 
-The IDP currently has a CI pipeline that builds container images and pushes them to a local registry. ArgoCD deploys applications across five environments (dev, qa, staging, prod1, prod2) from git-defined manifests. However, there is no automated deployment pipeline — image tags in cluster manifests are updated manually, and there is no mechanism to verify a deployment before it receives production traffic.
+The IDP builds container images in Forgejo Actions and pushes them to a local registry. Kargo promotes hello-app from dev through qa and stage, then through a manual prod gate, and prod-1 and prod-2 deploy that freight in parallel. Promotion succeeds only when the Application reports the freight image. Analysis and rollback are still the remaining work.
 
 We need a deployment strategy where every new version is tested against the actual running environment before it goes live. Different environments require different types of verification:
 
@@ -10,9 +10,9 @@ We need a deployment strategy where every new version is tested against the actu
 | ----------- | --------------------------------------- |
 | dev         | e2e tests                               |
 | qa          | Performance testing + deep verification |
-| staging     | e2e tests                               |
-| prod1       | e2e tests                               |
-| prod2       | e2e tests                               |
+| stage       | e2e tests                               |
+| prod-1      | e2e tests                               |
+| prod-2      | e2e tests                               |
 
 The e2e test suite is the same across environments, but each environment has different configuration (replicas, resource limits, external dependencies, etc). If verification fails, the deployment must automatically roll back with no manual intervention and no downtime.
 
@@ -32,37 +32,53 @@ Kargo Warehouses watch for new artifacts (container images, git commits, Helm ch
 
 Kargo's built-in promotion steps handle the git workflow for each environment transition:
 
-1. `git-clone` — check out the IDP repo
+1. `git-clone` — check out the gitops repo on `main`
 2. `kustomize-set-image` — set the image tag in the target overlay
 3. `git-commit` + `git-push` — commit and push to Forgejo
-4. `argocd-update` — trigger ArgoCD sync and wait for health
+4. `argocd-update` — start a sync of this Application
+5. `argocd-wait` — wait until that Application is Healthy and Synced
+6. `http` — succeed only when `status.summary.images` contains the freight tag
 
-ArgoCD auto-sync remains enabled. Kargo pushes to git, ArgoCD detects the change and syncs. If ArgoCD syncs before Kargo's `argocd-update` step runs, Kargo detects the app is already synced and moves on. No conflict.
+prod has a single `compose-output` step. It records the tag and writes no manifest.
+
+Argo CD auto-sync remains enabled. Kargo pushes to git, Argo CD detects the change and syncs. `argocd-wait` does not compare the sync revision, because every stage tracks `HEAD`. The `http` step is what proves this promotion's image is the one running.
 
 ### Deployment flow
 
 1. CI builds and pushes a new image to the registry.
-2. Kargo Warehouse detects the new tag and creates a Freight.
-3. Kargo promotes the Freight to the dev Stage (commits tag to dev overlay).
-4. ArgoCD syncs. Argo Rollouts deploys the new version.
-5. An AnalysisRun executes the verification suite against the live deployment.
-6. On success, Kargo verification confirms the Stage is healthy.
-7. Kargo promotes the same Freight to the next Stage (according to schedule and policy).
-8. The cycle repeats through each environment.
+2. The `hello-app` Warehouse detects the new tag and creates a Freight.
+3. dev promotes it immediately and commits the tag into the dev overlay.
+4. Argo CD syncs that Application. The promotion succeeds when the running image is the freight tag.
+5. qa, then stage, then prod, each wait for a Promote click. prod writes nothing.
+6. prod-1 and prod-2 promote that Freight automatically and deploy in parallel.
+
+AnalysisRuns are not part of this loop yet. A failed `http` check fails the Promotion, and the next stage does not see the Freight as verified.
 
 ### Promotion strategy
 
-Each Stage defines its own promotion policy. Promotions can be immediate, scheduled, or both. Failure at any stage blocks the Freight from reaching subsequent environments.
+| Transition        | Trigger                                              |
+| ----------------- | ---------------------------------------------------- |
+| New image → dev   | Immediate, when the Warehouse creates the Freight    |
+| dev → qa          | Manual Promote                                       |
+| qa → stage        | Manual Promote                                       |
+| stage → prod      | Manual Promote. prod deploys nothing                 |
+| prod → prod-1     | Immediate, after prod verifies the Freight           |
+| prod → prod-2     | Immediate, in parallel with prod-1                   |
 
-| Transition       | Trigger                                    |
-| ---------------- | ------------------------------------------ |
-| New image → dev  | Immediate (Kargo Warehouse detects tag)    |
-| dev → qa         | Scheduled (daily at 2am)                   |
-| qa → staging     | Scheduled (daily at 2am)                   |
-| staging → prod1  | Scheduled (weekly)                         |
-| prod1 → prod2    | Immediate (after prod1 verification)       |
+Scheduled windows (qa and stage daily, production weekly) remain future policy. The running policy is the table above. An admin can approve one production stage directly, which lets that stage promote without waiting for prod. Approving prod itself does not skip the fan-out.
 
-Between scheduled windows, multiple versions may pass the previous stage. Kargo promotes only the latest Freight — intermediate versions are skipped automatically.
+### Config trigger
+
+Image promotion subscribes only to the registry. A merged manifest is applied by Argo CD because every Application renders `HEAD`, and the overlays point at `gitops/apps/hello-app`.
+
+Config that must soak uses a second Warehouse and a tree Argo CD does not sync:
+
+- People merge into `gitops/apps/hello-app`, including `envs/<stage>` for the patches that today live in the overlays.
+- `hello-app-config` subscribes to `apps/hello-app` and not to `clusters/`.
+- Each deploying stage requests both Freights. A promotion renders that stage's env at the config commit, sets the image Freight's tag, and commits plain manifests under `clusters/<cluster>/<namespace>/hello-app`.
+- prod stays a gate with no render. prod-1 and prod-2 render their own env directories after the click.
+
+The two Warehouses keep their own cadence. One Warehouse with both subscriptions would ship the newest image and the newest commit as a single Freight. This config path is the plan; the image path above is what is running.
 
 ### CI workflows
 
@@ -145,12 +161,14 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 
 ### Promotion
 - [x] Kargo Warehouse detects new container images via the TLS registry proxy.
-- [ ] Kargo Warehouse detects git commits and Helm chart versions.
-- [x] Kargo Stage exists for dev. Remaining environments (qa, staging, prod1, prod2) are pending.
-- [x] Dev promotions trigger immediately when new Freight is available.
-- [ ] QA and staging promotions are scheduled (daily at 2am).
-- [ ] Prod1 promotions are scheduled (weekly).
-- [ ] Prod2 promotions trigger immediately after prod1 verification.
+- [ ] `hello-app-config` detects commits under `gitops/apps/hello-app`.
+- [ ] Kargo Warehouse detects Helm chart versions.
+- [x] Stages exist for dev, qa, stage, prod, prod-1, and prod-2.
+- [x] Dev promotions trigger immediately when new image Freight is available.
+- [x] qa, stage, and prod wait for Promote. prod deploys nothing.
+- [x] prod-1 and prod-2 promote immediately after prod verifies the Freight.
+- [ ] QA and stage promotions are scheduled (daily at 2am).
+- [ ] The prod gate is scheduled (weekly) instead of manual.
 - [ ] Intermediate Freight versions are skipped when multiple arrive between scheduled windows.
 - [ ] Failed verification blocks the Freight from reaching subsequent Stages.
 - [ ] A new Freight supersedes a failed one and starts a fresh rollout from the stable version.
@@ -171,5 +189,6 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 - [ ] Environment-specific test configuration is defined per cluster overlay.
 
 ### End-to-end
-- [ ] The full promotion chain (dev → qa → staging → prod1 → prod2) is operational.
-- [x] CI remains in Forgejo Actions. Kargo handles all of CD (dev pipeline end-to-end).
+- [x] The image promotion chain (dev → qa → stage → prod → prod-1 and prod-2) is operational.
+- [ ] The config promotion chain renders `apps/hello-app` into the live directories.
+- [x] CI remains in Forgejo Actions. Kargo handles all of CD.
