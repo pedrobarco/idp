@@ -7,5 +7,5 @@ metadata:
   namespace: kube-public
 data:
   localRegistryHosting.v1: |
-    host: "localhost:5001"
+    host: "registry-tls-proxy.registry.svc.cluster.local"
     help: "https://kind.sigs.k8s.io/docs/user/local-registry/"

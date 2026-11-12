@@ -3,14 +3,14 @@
 # Build and push a container image.
 #
 # Flags:
-#   --registry, -r  Registry host (default: localhost:5001)
+#   --registry, -r  Registry host (default: registry-tls-proxy.registry.svc.cluster.local)
 #   --repo           Image repository name (required)
 #   --tag, -t        Image tag (default: git SHA7)
 #   --context, -c    Build context path (default: .)
 #
 set -euo pipefail
 
-REGISTRY="localhost:5001"
+REGISTRY="registry-tls-proxy.registry.svc.cluster.local"
 REPOSITORY=""
 TAG=""
 CONTEXT="."

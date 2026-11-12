@@ -35,7 +35,7 @@ spec:
           config:
             path: ./src/clusters/nonprod/qa/hello-app
             images:
-              - image: localhost:5001/hello-app
+              - image: ${{ vars.imageRepo }}
                 tag: ${{ imageFrom(vars.imageRepo).Tag }}
         - uses: git-commit
           as: commit
@@ -75,7 +75,7 @@ spec:
               response.status == 200 &&
               response.body?.status?.health?.status == "Healthy" &&
               response.body?.status?.sync?.status == "Synced" &&
-              "localhost:5001/hello-app:${{ imageFrom(vars.imageRepo).Tag }}" in
+              "${{ vars.imageRepo }}:${{ imageFrom(vars.imageRepo).Tag }}" in
               response.body?.status?.summary?.images
             failureExpression: >
               response.body?.status?.health?.status == "Degraded" ||

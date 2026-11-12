@@ -6,7 +6,7 @@ on:
       registry:
         description: "Registry host"
         type: string
-        default: "k3d-kind-registry:5000"
+        default: "registry-tls-proxy.registry.svc.cluster.local"
 
 jobs:
   build-and-push:

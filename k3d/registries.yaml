@@ -1,4 +1,4 @@
 mirrors:
-  "localhost:5001":
+  "registry-tls-proxy.registry.svc.cluster.local":
     endpoint:
       - http://k3d-kind-registry:5000

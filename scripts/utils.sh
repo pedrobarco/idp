@@ -16,10 +16,11 @@ HUB_CONTEXT="${HOST_CONTEXT}"
 VCLUSTER_VERSION="0.37.7"
 
 # ---------- Registry ----------------------------------------------------------
+# k3d publishes the registry container on the host. Image names use the
+# in-cluster proxy, which this port does not appear in.
 REG_NAME="k3d-kind-registry"
 REG_PORT="5001"
 REG_INTERNAL_PORT="5000"
-REG_HOST="localhost:${REG_PORT}"
 
 # Every ingress is served by the tools cluster controller on port 80.
 cluster_http_port() {

@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: hello-app
-          image: localhost:5001/hello-app:latest
+          image: registry-tls-proxy.registry.svc.cluster.local/hello-app:latest
           ports:
             - name: http
               containerPort: 8080
