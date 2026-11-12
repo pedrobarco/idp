@@ -45,7 +45,7 @@ graph TB
     ArgoCD -- "manages" --> prod
 ```
 
-One k3d node is the tools cluster. Two vclusters on that node hold the environments: `nonprod` has namespaces `dev`, `qa`, and `stage`; `prod` has `prod-1` and `prod-2`. Promotion is dev → qa → stage, then prod-1 and prod-2 side by side.
+One k3d node is the tools cluster. Two vclusters on that node hold the environments: `nonprod` has namespaces `dev`, `qa`, and `stage`; `prod` has `prod-1` and `prod-2`. Promotion is dev → qa → stage → prod. prod is a manual gate with no deploy, and prod-1 and prod-2 promote from it automatically.
 
 | Cluster | What it is | Runs | Port |
 | ------- | ---------- | ---- | ---- |

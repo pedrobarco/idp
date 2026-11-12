@@ -10,5 +10,6 @@ resources:
   - stages/dev.yaml
   - stages/qa.yaml
   - stages/stage.yaml
+  - stages/prod.yaml
   - stages/prod-1.yaml
   - stages/prod-2.yaml

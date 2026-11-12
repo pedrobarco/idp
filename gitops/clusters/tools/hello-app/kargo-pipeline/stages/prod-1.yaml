@@ -13,7 +13,7 @@ spec:
       sources:
         direct: false
         stages:
-          - stage
+          - prod
   promotionTemplate:
     spec:
       vars:

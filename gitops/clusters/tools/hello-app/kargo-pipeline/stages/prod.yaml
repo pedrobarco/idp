@@ -1,0 +1,29 @@
+# One Promote click, and no Deployment. prod-1 and prod-2 then promote
+# themselves. A Stage with no steps cannot be promoted: Kargo would verify
+# every Freight from stage on its own.
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: prod
+  namespace: hello-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: hello-app
+      sources:
+        direct: false
+        stages:
+          - stage
+  promotionTemplate:
+    spec:
+      vars:
+        - name: imageRepo
+          value: registry-tls-proxy.registry.svc.cluster.local/hello-app
+      steps:
+        - uses: compose-output
+          as: approve
+          config:
+            image: ${{ imageFrom(vars.imageRepo).Tag }}

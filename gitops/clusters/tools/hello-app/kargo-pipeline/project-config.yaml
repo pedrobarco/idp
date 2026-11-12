@@ -10,7 +10,8 @@ spec:
     - stageSelector:
         name: dev
       autoPromotionEnabled: true
-    # Each later stage waits for its Promote button.
+    # qa, stage, and prod wait for a Promote button. prod deploys nothing;
+    # prod-1 and prod-2 take that Freight automatically.
     - stageSelector:
         name: qa
       autoPromotionEnabled: false
@@ -18,8 +19,11 @@ spec:
         name: stage
       autoPromotionEnabled: false
     - stageSelector:
-        name: prod-1
+        name: prod
       autoPromotionEnabled: false
     - stageSelector:
+        name: prod-1
+      autoPromotionEnabled: true
+    - stageSelector:
         name: prod-2
-      autoPromotionEnabled: false
+      autoPromotionEnabled: true
