@@ -199,14 +199,20 @@ for rel in sorted(base_files | local_files | head_files):
     # This repo did not change the file. Keep Forgejo's copy.
     if local_bytes == base_bytes:
         continue
-    # Forgejo still has the last sync. Take the local copy.
-    if forgejo_bytes == base_bytes:
-        if local_bytes is None:
-            dest.unlink(missing_ok=True)
-        else:
+    # The local deletion matches the last sync. Forgejo has nothing newer.
+    if local_bytes is None and forgejo_bytes == base_bytes:
+        dest.unlink(missing_ok=True)
+        continue
+    # Forgejo still matches the last sync, and both sides agree on images.
+    # A missing local images block is not agreement: the sync commit records
+    # Kargo's tags, and the local tree never carries them.
+    if forgejo_bytes == base_bytes and local_bytes is not None:
+        _, local_images = split_images(local_bytes)
+        _, forgejo_images = split_images(forgejo_bytes)
+        if local_images == forgejo_images:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(local_bytes)
-        continue
+            continue
     if local_bytes == forgejo_bytes:
         continue
     if local_bytes is None or forgejo_bytes is None or base_bytes is None:
@@ -217,7 +223,12 @@ for rel in sorted(base_files | local_files | head_files):
     base_body, base_images = split_images(base_bytes)
     local_body, local_images = split_images(local_bytes)
     forgejo_body, forgejo_images = split_images(forgejo_bytes)
-    images = choose_images(rel, base_images, local_images, forgejo_images)
+    # The local tree does not store image tags. Absence must not delete the
+    # block a previous sync kept, or the one Kargo wrote after that sync.
+    if local_images is None:
+        images = forgejo_images
+    else:
+        images = choose_images(rel, base_images, local_images, forgejo_images)
 
     # Kargo rewrites indentation when it sets an image. Ignore that and keep
     # the local body when the only real Forgejo change is the images block.
