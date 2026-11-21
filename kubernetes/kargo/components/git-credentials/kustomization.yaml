@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - credentials.yaml
+
+# The project name is the namespace. Copy it onto the shared git Secrets.
+replacements:
+  - source:
+      kind: Project
+      fieldPath: metadata.name
+    targets:
+      - select:
+          kind: Secret
+          labelSelector: kargo.akuity.io/cred-type=git
+        fieldPaths:
+          - metadata.namespace
+        options:
+          create: true

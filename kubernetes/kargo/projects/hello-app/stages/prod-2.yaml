@@ -1,0 +1,25 @@
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: prod-2
+  namespace: hello-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: hello-app
+      sources:
+        direct: false
+        stages:
+          - prod
+  promotionTemplate:
+    spec:
+      steps:
+        - task:
+            name: set-image
+            kind: PromotionTask
+          vars:
+            - name: cluster
+              value: prod

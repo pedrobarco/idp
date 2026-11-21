@@ -1,0 +1,16 @@
+# Demo Forgejo user for the hello-app repo. Same credential as
+# kubernetes/kargo/components/git-credentials. Kargo matches it by repoURL,
+# and the secret has to live in this project namespace.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: forgejo-hello-app
+  namespace: hello-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    kargo.akuity.io/cred-type: git
+stringData:
+  repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/hello-app.git
+  username: idp
+  password: admin123

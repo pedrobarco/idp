@@ -1,0 +1,44 @@
+# Git directory generator: discovers deployment targets from the gitops repo root.
+# Path: <cluster>/<namespace>/hello-app
+# Add a new directory → hello-app auto-deploys there.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: hello-app
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
+        revision: HEAD
+        directories:
+          - path: "nonprod/*/hello-app"
+          - path: "prod/*/hello-app"
+  template:
+    metadata:
+      name: "hello-app-{{ index .path.segments 1 }}-{{ index .path.segments 0 }}"
+      annotations:
+        # One project:stage value. The stage name is the namespace.
+        kargo.akuity.io/authorized-stage: "hello-app:{{ index .path.segments 1 }}"
+      labels:
+        app.kubernetes.io/name: hello-app
+        app.kubernetes.io/part-of: idp
+        app.kubernetes.io/cluster: "{{ index .path.segments 0 }}"
+    spec:
+      project: default
+      source:
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
+        targetRevision: HEAD
+        path: "{{ .path.path }}"
+      destination:
+        name: "{{ index .path.segments 0 }}"
+        namespace: "{{ index .path.segments 1 }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

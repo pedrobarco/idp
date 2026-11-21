@@ -220,7 +220,7 @@ _forgejo_create_repo() {
   esac
 }
 
-# Create the repos setup publishes: gitops, actions, and each projects/<name>.
+# Create the repos setup publishes: gitops, platform, actions, and each projects/<name>.
 provision_forgejo_repos() {
   local user pass project_path
   user="$(forgejo_admin_user)"
@@ -231,6 +231,7 @@ provision_forgejo_repos() {
   fi
   log "Creating Forgejo repositories…"
   _forgejo_create_repo "${user}" "${pass}" gitops
+  _forgejo_create_repo "${user}" "${pass}" platform
   _forgejo_create_repo "${user}" "${pass}" actions
   for project_path in "${REPO_ROOT}/projects"/*/; do
     [[ -d "${project_path}" ]] || continue

@@ -15,7 +15,7 @@ stop: ## Stop clusters without losing state
 start: ## Start previously stopped clusters
 	@./scripts/start.sh
 
-sync: ## Sync repos to Forgejo
+sync: ## Publish platform, actions, and app repos. Seed gitops only when it has no main
 	@./scripts/sync-projects.sh
 
 status: ## Show platform status (applications, URLs, credentials)

@@ -1,0 +1,16 @@
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: ingress-nginx
+  namespace: ingress-nginx
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  freightCreationPolicy: Automatic
+  interval: 2m0s
+  subscriptions:
+    - git:
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/platform.git
+        branch: main
+        includePaths:
+          - kubernetes/ingress-nginx

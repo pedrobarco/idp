@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    kargo.akuity.io/project: "true"
+  annotations:
+    kargo.akuity.io/keep-namespace: "true"

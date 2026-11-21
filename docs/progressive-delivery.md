@@ -30,14 +30,15 @@ The CD pipeline is built on three tools with no overlap in responsibilities:
 
 Kargo Warehouses watch for new artifacts (container images, git commits, Helm charts). When a change is detected, Kargo creates a Freight — a bundle of artifact versions that flows through a pipeline of Stages. Each Stage represents an environment and defines its own promotion steps, schedule, and verification.
 
-Kargo's built-in promotion steps handle the git workflow for each environment transition:
+Deploying stages call the hello-app `set-image` PromotionTask. It runs:
 
-1. `git-clone` — check out the gitops repo on `main`
-2. `kustomize-set-image` — set the image tag in the target overlay
-3. `git-commit` + `git-push` — commit and push to Forgejo
-4. `argocd-update` — start a sync of this Application
-5. `argocd-wait` — wait until that Application is Healthy and Synced
-6. `http` — succeed only when `status.summary.images` contains the freight tag
+1. `git-clone` — check out the hello-app repo on `main`
+2. `kustomize-set-image` — set the freight tag on `deploy/envs/<stage>`
+3. `kustomize-build` — render that env to plain manifests in the gitops directory
+4. `git-commit` + `git-push` — commit and push the gitops repo
+5. `argocd-update` — start a sync of this Application
+6. `argocd-wait` — wait until that Application is Healthy and Synced
+7. `http` — succeed only when `status.summary.images` contains the freight tag
 
 prod has a single `compose-output` step. It records the tag and writes no manifest.
 
@@ -47,7 +48,7 @@ Argo CD auto-sync remains enabled. Kargo pushes to git, Argo CD detects the chan
 
 1. CI builds and pushes a new image to the registry.
 2. The `hello-app` Warehouse detects the new tag and creates a Freight.
-3. dev promotes it immediately and commits the tag into the dev overlay.
+3. dev promotes it immediately and replaces the dev directory with rendered manifests.
 4. Argo CD syncs that Application. The promotion succeeds when the running image is the freight tag.
 5. qa, then stage, then prod, each wait for a Promote click. prod writes nothing.
 6. prod-1 and prod-2 promote that Freight automatically and deploy in parallel.
@@ -69,16 +70,43 @@ Scheduled windows (qa and stage daily, production weekly) remain future policy. 
 
 ### Config trigger
 
-Image promotion subscribes only to the registry. A merged manifest is applied by Argo CD because every Application renders `HEAD`, and the overlays point at `gitops/apps/hello-app`.
+Image promotion subscribes only to the registry. A promotion renders hello-app `main` into that stage's gitops directory. Stages that have not been promoted since the render change still build `deploy/base` through the seeded kustomization.
 
 Config that must soak uses a second Warehouse and a tree Argo CD does not sync:
 
-- People merge into `gitops/apps/hello-app`, including `envs/<stage>` for the patches that today live in the overlays.
-- `hello-app-config` subscribes to `apps/hello-app` and not to `clusters/`.
-- Each deploying stage requests both Freights. A promotion renders that stage's env at the config commit, sets the image Freight's tag, and commits plain manifests under `clusters/<cluster>/<namespace>/hello-app`.
+- People merge into `projects/hello-app/deploy/base` and `deploy/envs/<stage>`. The env patches are what the live gitops directories carry today.
+- `hello-app-config` subscribes to `deploy` on the hello-app repo and not to the gitops repo.
+- Each deploying stage requests both Freights. A promotion renders that stage's env at the config commit, sets the image Freight's tag, and commits plain manifests under `<cluster>/<namespace>/hello-app`.
 - prod stays a gate with no render. prod-1 and prod-2 render their own env directories after the click.
 
-The two Warehouses keep their own cadence. One Warehouse with both subscriptions would ship the newest image and the newest commit as a single Freight. This config path is the plan; the image path above is what is running.
+The two Warehouses keep their own cadence. One Warehouse with both subscriptions would ship the newest image and the newest commit as a single Freight. This config path is the plan; the image path above is what is running. dev has been rendered once. qa, stage, prod-1, and prod-2 still build `deploy/base` through the seeded kustomization until their next promotion.
+
+## Next: one publish convention
+
+`bundle` and `set-image` both delete a gitops directory, render a kustomize env, commit, push, then wait on Argo CD. They name that directory and the Application differently, and the write-back is copied because a task cannot call another task. The next change makes the naming conventional and the write-back one task that every module and app stage uses.
+
+Every deploying stage passes `cluster` and `namespace`. `cluster` is `tools`, `nonprod`, or `prod`. `namespace` is the workload namespace. A tools stage defaults `cluster` to the stage name and `namespace` to the project name, so registry stays `tools/registry/registry` and `registry-registry-tools`. forgejo-actions keeps overriding `namespace` to `forgejo`. An app stage sets `namespace` to the stage name, so hello-app dev stays `nonprod/dev/hello-app` and `hello-app-dev-nonprod`.
+
+| Piece | Value |
+| --- | --- |
+| Gitops directory | `<cluster>/<namespace>/<project>` |
+| Application | `<project>-<namespace>-<cluster>` |
+| Platform source | `kubernetes/<project>/envs/<stage>` in the platform repo, at the freight commit |
+| App source | `deploy/envs/<stage>` in the app repo, at the config freight commit |
+
+A stage sequences two tasks. Their steps share one work directory.
+
+1. **Prepare** is specific to the artifact. Platform prepare checks out the platform repo at `commitFrom`. An app prepare checks out that app's repo, sets the image tag, and later the chart version. It leaves a kustomize tree on disk and does not commit that repo.
+2. **`publish`** is one `ClusterPromotionTask`. It takes the prepared path plus `cluster` and `namespace`. It deletes `<cluster>/<namespace>/<project>`, runs `kustomize-build`, writes the kustomization that lists `manifests.yaml`, commits and pushes the gitops repo, then runs `argocd-update` and `argocd-wait` on `<project>-<namespace>-<cluster>`. An app stage adds the existing `http` image check after that. prod does not call `publish`.
+
+Git credentials stay a secret in the project namespace, one per repo URL. `publish` does not own them.
+
+Do this in order:
+
+1. Teach `bundle` and `set-image` the `cluster` and `namespace` vars and the table above. Defaults keep every tools directory where it is. hello-app paths do not move.
+2. Extract `publish` and point both stages at prepare then `publish`. Drop the copied write-back from `bundle` and `set-image`.
+3. When `hello-app-config` exists, app prepare checks out that freight commit instead of `main`.
+4. A further app adds a prepare task and a stage that calls `publish`. It does not copy the gitops steps. A further platform destination is `envs/<stage>` plus a stage with `cluster` and `namespace`.
 
 ### CI workflows
 
@@ -161,7 +189,7 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 
 ### Promotion
 - [x] Kargo Warehouse detects new container images via the TLS registry proxy.
-- [ ] `hello-app-config` detects commits under `gitops/apps/hello-app`.
+- [ ] `hello-app-config` detects commits under `projects/hello-app/deploy`.
 - [ ] Kargo Warehouse detects Helm chart versions.
 - [x] Stages exist for dev, qa, stage, prod, prod-1, and prod-2.
 - [x] Dev promotions trigger immediately when new image Freight is available.
@@ -189,6 +217,8 @@ At no point does v2 reach any subsequent environment. The degraded state is temp
 - [ ] Environment-specific test configuration is defined per cluster overlay.
 
 ### End-to-end
+- [ ] `bundle` and `set-image` both use `<cluster>/<namespace>/<project>` and `<project>-<namespace>-<cluster>`.
+- [ ] Stages call a shared `publish` task after a prepare task. Prepare does not commit the gitops repo.
 - [x] The image promotion chain (dev → qa → stage → prod → prod-1 and prod-2) is operational.
-- [ ] The config promotion chain renders `apps/hello-app` into the live directories.
+- [ ] The config promotion chain renders `projects/hello-app/deploy` into the live directories.
 - [x] CI remains in Forgejo Actions. Kargo handles all of CD.

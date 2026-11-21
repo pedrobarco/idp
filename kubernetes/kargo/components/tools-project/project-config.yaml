@@ -1,0 +1,12 @@
+apiVersion: kargo.akuity.io/v1alpha1
+kind: ProjectConfig
+metadata:
+  name: tools-project
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  promotionPolicies:
+    # One destination. A second cluster adds another stage; this one stays the tools render.
+    - stageSelector:
+        name: tools
+      autoPromotionEnabled: true

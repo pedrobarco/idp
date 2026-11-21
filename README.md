@@ -70,20 +70,20 @@ Argo CD, Forgejo, and Kargo set memory requests and limits. Dex, notifications, 
 │   ├── build.sh
 │   └── .forgejo/workflows/build-and-push.yaml
 │
-├── gitops/                   # Desired state, published as the gitops repo
-│   ├── infrastructure/       # Shared bases (namespace and manifests)
-│   │   └── <app>/
-│   ├── applicationsets/      # ArgoCD ApplicationSet declarations
-│   │   └── <app>.yaml        # Git directory generator → clusters/*/*/<app>
-│   ├── apps/                 # App base manifests (Deployment, Service, Ingress, …)
-│   │   └── <app>/
-│   └── clusters/             # One overlay per target
-│       └── <cluster>/
-│           └── <namespace>/
-│               └── <app>/    # clusters/tools/kargo/kargo, clusters/nonprod/qa/hello-app, …
+├── kubernetes/               # Control plane. Each module has base/ and envs/
+│   ├── argocd/               # Argo CD install, bootstrap, and ApplicationSets
+│   ├── kargo/                # Kargo install
+│   │   ├── base/             # Namespace and the bundle ClusterPromotionTask
+│   │   ├── components/       # Git credentials and the tools ProjectConfig
+│   │   ├── envs/tools/       # Helm values for the tools destination
+│   │   └── projects/<name>/  # One Kargo Project: Warehouse, Stages, and app tasks
+│   └── <component>/          # base/, plus envs/<destination>/ for each variation
 │
-├── projects/                 # Application source code + CI workflows
+├── projects/                 # Application source, CI, and deploy manifests
 │   └── <app>/
+│       └── deploy/
+│           ├── base/         # Shared manifests, published with the app repo
+│           └── envs/<stage>/ # dev, qa, stage, prod-1, prod-2
 │
 └── Makefile
 ```
@@ -96,8 +96,8 @@ Argo CD, Forgejo, and Kargo set memory requests and limits. Dex, notifications, 
 1. **Bootstrap** — install Argo CD, Forgejo, and cert-manager, register the Actions runner, and install the two vclusters
 2. **Register** — give Argo CD a cluster secret for the tools cluster and each vcluster from the vcluster admin client certificate
 3. **Repos** — create the Forgejo repositories through the API
-4. **Sync** — publish `gitops/`, `actions/`, and each `projects/*` to its own Forgejo repo
-5. **Activate** — apply the root Application that tracks `gitops/applicationsets/`
+4. **Sync** — publish each `kubernetes/<module>/` (base and `envs/`) to the Forgejo `platform` repo, plus `actions/` and each `projects/*`. Seed the `gitops` repo from those envs only when it has no `main`; after that Kargo is the only writer
+5. **Activate** — apply the root Application that tracks `kubernetes/argocd/applicationsets` on `platform`
 
 ### CI Pipeline
 
@@ -109,7 +109,9 @@ The Forgejo Actions runner is deployed as a pod with a DinD (Docker-in-Docker) s
 
 ### CD Pipeline
 
-Kargo handles continuous delivery. A **Warehouse** watches the container registry for new image tags. When a new tag is detected, Kargo creates a **Freight** and promotes it through a pipeline of **Stages** (one per environment). Each Stage runs promotion steps: `git-clone` → `kustomize-set-image` → `git-commit` → `git-push` → `argocd-update` → `argocd-wait` → an `http` check that the Application reports the freight image.
+Kargo handles continuous delivery. hello-app has a **Warehouse** that watches the container registry. A new tag becomes **Freight** and moves through one **Stage** per environment. Each deploying stage calls the hello-app `set-image` PromotionTask. It sets the freight tag on `deploy/envs/<stage>` in the hello-app repo, renders that env to plain manifests, and replaces the gitops directory. The prod stage is a gate and does not call that task.
+
+Each platform project under `kubernetes/kargo/projects/<name>/` has one stage, `tools`. That stage calls the shared `bundle` task, which renders `kubernetes/<project>/envs/<stage>` into `<cluster>/<namespace>/<project>`. The stage name is the env directory and the cluster. The namespace defaults to the project name. A second destination is another stage; these projects have one destination today. The `tools` stage promotes new Freight on its own. Those projects share `kubernetes/kargo/components/tools-project` for the promotion policy and `kubernetes/kargo/components/git-credentials` for Forgejo. hello-app uses the same git credentials.
 
 Images are named `registry-tls-proxy.registry.svc.cluster.local/<repo>`. The registry container is HTTP-only, so an nginx **TLS reverse proxy** (`registry-tls-proxy`) on the tools cluster is the HTTPS front door for pushes and for Kargo. containerd pulls that same name through a mirror to `http://k3d-kind-registry:5000`, set in `k3d/registries.yaml`. The proxy generates its own certificate when the pod starts. Kargo's admission webhooks use the chart default and ask cert-manager for a certificate. The API itself is HTTP behind the ingress, and the external webhook receiver is off.
 
@@ -117,25 +119,29 @@ See [progressive-delivery.md](docs/progressive-delivery.md) for the full promoti
 
 ### GitOps Loop
 
-The `gitops/applicationsets/` directory contains ApplicationSet declarations. Each one uses a **git directory generator** that scans `clusters/*/*/<app>`. Every target uses the same path:
+The `kubernetes/argocd/applicationsets/` directory contains ApplicationSet declarations. Workload and addon sets use a git directory generator against the gitops repo. Its root is the live cluster tree, seeded once from each module's `envs/` and from `projects/hello-app/deploy/envs/`:
 
 ```
-clusters/<cluster>/<namespace>/<app>/kustomization.yaml
+tools/<namespace>/<app>/
+nonprod/<namespace>/<app>/
+prod/<namespace>/<app>/
 ```
 
-`tools` is the k3d cluster. `nonprod` and `prod` are the vclusters. Each matching directory becomes an ArgoCD Application. The kustomization references a shared base and applies the patches for that target. Forgejo is the exception that bootstrap applies directly: its runner secret is generated locally and is not in the GitOps repo.
+`tools` is the k3d cluster. `nonprod` and `prod` are the vclusters. Each matching directory becomes an Argo CD Application. The seed writes the env kustomization there and points it at `base/` on platform or on the hello-app repo. A platform promotion replaces that directory with rendered manifests. A hello-app promotion replaces that directory with the rendered env. Forgejo is the exception that bootstrap applies directly: its runner secret is generated locally and is not in the GitOps repo.
 
 ### Adding a New App
 
-1. Create the base manifests in `gitops/apps/<name>/`
-2. Create overlays in `gitops/clusters/<cluster>/<namespace>/<name>/`
-3. Create an ApplicationSet in `gitops/applicationsets/<name>.yaml`
-4. Run `make sync` to push changes to Forgejo
+1. Create the shared manifests in `projects/<name>/deploy/base/`
+2. Create `projects/<name>/deploy/envs/<stage>/` for each environment. Its kustomization points at `../../base`
+3. Create an ApplicationSet in `kubernetes/argocd/applicationsets/<name>.yaml`
+4. Create `kubernetes/kargo/projects/<name>/` with a Project, Warehouse, Stages, and the app's PromotionTask
+5. Run `make sync` to publish the app repo. The gitops directory has to exist before Argo CD can discover it. A fresh cluster gets it from the seed. An existing gitops repo gets it from the promotion that writes that directory.
 
-### Adding a New Cluster Target
+### Adding a Platform Destination
 
-1. Create `gitops/clusters/<cluster>/<namespace>/<app>/kustomization.yaml`
-2. Run `make sync` — ArgoCD auto-discovers the new directory
+1. Create `kubernetes/<module>/envs/<stage>/kustomization.yaml` pointing at `../../base`
+2. Add a Stage with that same name under `kubernetes/kargo/projects/<module>`. `bundle` reads `kubernetes/<module>/envs/<stage>`. Set `namespace` only when the workload namespace is not the project name
+3. Run `make sync` to publish the module. Argo CD discovers the directory once it exists in gitops, from the seed or from the promotion that renders it.
 
 ### Platform Status (`make status`)
 
@@ -155,6 +161,9 @@ clusters/<cluster>/<namespace>/<app>/kustomization.yaml
   hello-app-prod-1-prod                    Synced/Healthy     http://hello-app.prod-1.prod.idp.localhost -
   hello-app-prod-2-prod                    Synced/Healthy     http://hello-app.prod-2.prod.idp.localhost -
 
+  cert-manager
+  cert-manager-cert-manager-tools          Synced/Healthy     -                                          -
+
   ingress-nginx
   ingress-nginx-ingress-nginx-tools        Synced/Healthy     -                                          -
 
@@ -162,7 +171,13 @@ clusters/<cluster>/<namespace>/<app>/kustomization.yaml
   kargo-kargo-tools                        Synced/Healthy     http://kargo.kargo.tools.idp.localhost     admin / ••••••••
 
   kargo-pipeline
+  kargo-pipeline-argocd-tools              Synced/Healthy     -                                          -
+  kargo-pipeline-cert-manager-tools        Synced/Healthy     -                                          -
+  kargo-pipeline-forgejo-actions-tools     Synced/Healthy     -                                          -
   kargo-pipeline-hello-app-tools           Synced/Healthy     -                                          -
+  kargo-pipeline-ingress-nginx-tools       Synced/Healthy     -                                          -
+  kargo-pipeline-kargo-tools               Synced/Healthy     -                                          -
+  kargo-pipeline-registry-tools            Synced/Healthy     -                                          -
 
   registry
   registry-registry-tools                  Synced/Healthy     -                                          -
@@ -176,7 +191,7 @@ clusters/<cluster>/<namespace>/<app>/kustomization.yaml
 | `make stop`   | Stop clusters without losing state (docker stop)      |
 | `make start`  | Resume previously stopped clusters (docker start)     |
 | `make clean`  | Destroy the clusters and the local registry           |
-| `make sync`   | Publish gitops, actions, and project folders to Forgejo |
+| `make sync`   | Publish platform, actions, and app repos. Seed gitops only when it has no main |
 | `make status` | Show platform status                                  |
 | `make help`   | List all targets                                      |
 

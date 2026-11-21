@@ -49,7 +49,7 @@ fi
 # Forgejo offline registration wants a 40-character hex secret. The runner
 # UUID is the UUID encoding of that secret's first 16 bytes. Labels are copied
 # from the runner config on every run so registration matches that file.
-FORGEJO_SECRETS_DIR="${REPO_ROOT}/gitops/clusters/tools/forgejo/forgejo/secrets"
+FORGEJO_SECRETS_DIR="${REPO_ROOT}/kubernetes/forgejo/envs/tools/secrets"
 mkdir -p "${FORGEJO_SECRETS_DIR}"
 runner_token=""
 runner_uuid=""
@@ -80,7 +80,7 @@ runner_labels=$(
     }
     in_labels { exit }
     END { print out }
-  ' "${REPO_ROOT}/gitops/infrastructure/forgejo-actions/config.yaml"
+  ' "${REPO_ROOT}/kubernetes/forgejo-actions/base/config.yaml"
 )
 if [[ -z "${runner_labels}" ]]; then
   echo "ERROR: runner config has no labels." >&2
@@ -155,7 +155,7 @@ for c in "${VCLUSTERS[@]}"; do
   done
   # The configmap documents the local registry for anything running in the vcluster.
   KUBECONFIG="${VCLUSTER_KUBECONFIG}" kubectl apply --server-side \
-    -f "${REPO_ROOT}/gitops/infrastructure/registry/configmap.yaml"
+    -f "${REPO_ROOT}/kubernetes/registry/base/configmap.yaml"
   close_vcluster "${VCLUSTER_PF_PID}"
 done
 
@@ -168,7 +168,7 @@ log "Syncing project content to Forgejo…"
 
 # ---------- 7. Activate GitOps -----------------------------------------------
 log "Applying root applicationsets Application…"
-kubectl --context "${HOST_CONTEXT}" apply -f "${REPO_ROOT}/gitops/applicationsets/applicationsets.yaml"
+kubectl --context "${HOST_CONTEXT}" apply -f "${REPO_ROOT}/kubernetes/argocd/bootstrap/root.yaml"
 
 log "Done! ArgoCD will now reconcile all workload applications."
 "${SCRIPT_DIR}/status.sh"
