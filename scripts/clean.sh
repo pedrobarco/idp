@@ -21,7 +21,7 @@ if k3d registry list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "${REG_NAME}
 fi
 
 log "Removing generated files…"
-forgejo_secrets="${REPO_ROOT}/kubernetes/forgejo/envs/tools/secrets"
+forgejo_secrets="${REPO_ROOT}/kubernetes/forgejo-actions/components/runner-token/secrets"
 [[ -d "${forgejo_secrets}" ]] && find "${forgejo_secrets}" -name '*.env' ! -name '*.env.example' -delete
 rm -rf "${REPO_ROOT}/.idp" "${REPO_ROOT}/.sync"
 

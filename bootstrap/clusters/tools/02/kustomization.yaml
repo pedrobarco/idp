@@ -1,0 +1,7 @@
+# Kargo chart, namespace, and admin credentials. cert-manager from wave 01 has
+# issued the webhook certificate this chart asks for.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../kubernetes/kargo/envs/tools

@@ -6,12 +6,8 @@ namespace: forgejo
 resources:
   - ../../base
 
-secretGenerator:
-  - name: forgejo-actions-runner-token
-    envs:
-      - secrets/runner-token.env
-    options:
-      disableNameSuffixHash: true
+components:
+  - ../../../forgejo-actions/components/runner-token
 
 helmCharts:
   - name: forgejo

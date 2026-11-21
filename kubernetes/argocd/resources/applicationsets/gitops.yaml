@@ -1,0 +1,47 @@
+# One generator for every rendered directory in gitops.
+# Path is <cluster>/<namespace>/<project>, for example tools/argocd/argocd
+# or nonprod/dev/hello-app. The Application name is <project>-<namespace>-<cluster>.
+# A platform stage is named after the cluster (tools). An app stage is named
+# after the namespace (dev, qa, ...), which is what authorized-stage must match.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: gitops
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
+        revision: HEAD
+        # The controller default is 3m. A new directory, such as the first
+        # hello-app stage, should be visible on the next poll.
+        requeueAfterSeconds: 20
+        directories:
+          - path: "*/*/*"
+  template:
+    metadata:
+      name: "{{ index .path.segments 2 }}-{{ index .path.segments 1 }}-{{ index .path.segments 0 }}"
+      annotations:
+        kargo.akuity.io/authorized-stage: '{{ if eq (index .path.segments 0) "tools" }}{{ index .path.segments 2 }}:{{ index .path.segments 0 }}{{ else }}{{ index .path.segments 2 }}:{{ index .path.segments 1 }}{{ end }}'
+      labels:
+        app.kubernetes.io/name: "{{ index .path.segments 2 }}"
+        app.kubernetes.io/part-of: idp
+        app.kubernetes.io/cluster: "{{ index .path.segments 0 }}"
+    spec:
+      project: default
+      source:
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
+        targetRevision: HEAD
+        path: "{{ .path.path }}"
+      destination:
+        name: "{{ index .path.segments 0 }}"
+        namespace: "{{ index .path.segments 1 }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

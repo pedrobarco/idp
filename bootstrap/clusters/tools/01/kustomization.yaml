@@ -1,0 +1,9 @@
+# cert-manager, Argo CD, and Forgejo. Kargo's webhook certificate waits on cert-manager.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../kubernetes/cert-manager/envs/tools
+  - ../../../../kubernetes/argocd/envs/tools
+  - ../../../../kubernetes/forgejo/envs/tools
+  - ../../../../kubernetes/forgejo-actions/bootstrap

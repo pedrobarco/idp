@@ -43,6 +43,11 @@ controller:
       cpu: "1"
       memory: 768Mi
 repoServer:
+  # The revision cache defaults to 3m (ARGOCD_RECONCILIATION_TIMEOUT).
+  # A directory committed between polls stays hidden until this expires,
+  # so match the ApplicationSet poll.
+  extraArgs:
+    - --revision-cache-expiration=20s
   resources:
     requests:
       cpu: 50m

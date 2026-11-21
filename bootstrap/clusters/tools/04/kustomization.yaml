@@ -1,0 +1,7 @@
+# Shared Kargo resources. Wave 02 has established the Kargo CRDs. Argo CD
+# adopts the same kustomization through kargo-shared-resources-tools.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../kubernetes/kargo/resources/shared

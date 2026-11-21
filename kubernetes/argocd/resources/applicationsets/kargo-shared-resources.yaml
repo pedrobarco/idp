@@ -1,0 +1,27 @@
+# Cluster-scoped Kargo objects applied together from resources/shared.
+# The name is kargo-shared-resources-<env>. <env> is the tools cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kargo-shared-resources-tools
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: kargo-shared-resources
+    app.kubernetes.io/part-of: idp
+    app.kubernetes.io/cluster: tools
+spec:
+  project: default
+  source:
+    repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/platform.git
+    targetRevision: HEAD
+    path: kubernetes/kargo/resources/shared
+  destination:
+    name: tools
+    namespace: kargo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

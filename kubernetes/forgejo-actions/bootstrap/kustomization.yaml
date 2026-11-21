@@ -1,0 +1,10 @@
+# Local runner token and the project namespace. run.sh writes the token file
+# into the runner-token component. It is not rendered into gitops.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: forgejo-actions
+
+components:
+  - ../components/namespace
+  - ../components/runner-token

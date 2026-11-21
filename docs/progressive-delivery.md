@@ -85,7 +85,7 @@ The two Warehouses keep their own cadence. One Warehouse with both subscriptions
 
 `bundle` and `set-image` both delete a gitops directory, render a kustomize env, commit, push, then wait on Argo CD. They name that directory and the Application differently, and the write-back is copied because a task cannot call another task. The next change makes the naming conventional and the write-back one task that every module and app stage uses.
 
-Every deploying stage passes `cluster` and `namespace`. `cluster` is `tools`, `nonprod`, or `prod`. `namespace` is the workload namespace. A tools stage defaults `cluster` to the stage name and `namespace` to the project name, so registry stays `tools/registry/registry` and `registry-registry-tools`. forgejo-actions keeps overriding `namespace` to `forgejo`. An app stage sets `namespace` to the stage name, so hello-app dev stays `nonprod/dev/hello-app` and `hello-app-dev-nonprod`.
+Every deploying stage passes `cluster` and `namespace`. `cluster` is `tools`, `nonprod`, or `prod`. `namespace` is the workload namespace. A tools stage defaults `cluster` to the stage name and `namespace` to the project name, so registry stays `tools/registry/registry` and `registry-registry-tools`, and forgejo-actions stays `tools/forgejo-actions/forgejo-actions`. An app stage sets `namespace` to the stage name, so hello-app dev stays `nonprod/dev/hello-app` and `hello-app-dev-nonprod`.
 
 | Piece | Value |
 | --- | --- |

@@ -1,9 +1,0 @@
-# Dedicated project namespace. The runner itself lives in forgejo.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: forgejo-actions
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-  labels:
-    kargo.akuity.io/project: "true"

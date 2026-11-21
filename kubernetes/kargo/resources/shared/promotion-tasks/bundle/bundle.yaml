@@ -1,0 +1,82 @@
+# Shared by every platform project. The source is
+# kubernetes/<project>/envs/<stage> in the platform repo. The stage name is the
+# env directory and the cluster. The namespace defaults to the project name.
+# A stage can override namespace when the workload namespace differs from the
+# project name. The rendered directory is <cluster>/<namespace>/<project>
+# and the Application is <project>-<namespace>-<cluster>.
+apiVersion: kargo.akuity.io/v1alpha1
+kind: ClusterPromotionTask
+metadata:
+  name: bundle
+spec:
+  vars:
+    - name: platformRepo
+      value: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/platform.git
+    - name: gitRepo
+      value: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/gitops.git
+    - name: namespace
+      value: ${{ ctx.project }}
+  steps:
+    - uses: git-clone
+      config:
+        repoURL: ${{ vars.platformRepo }}
+        checkout:
+          - commit: ${{ commitFrom(vars.platformRepo).ID }}
+            path: ./proposal
+    # create makes the empty gitops repo's main on the first promotion.
+    # Several tools stages do this at once. The default error threshold is 1,
+    # which would fail the losers of that race instead of retrying the clone.
+    - uses: git-clone
+      retry:
+        errorThreshold: 5
+      config:
+        repoURL: ${{ vars.gitRepo }}
+        checkout:
+          - branch: main
+            create: true
+            path: ./gitops
+    - uses: delete
+      config:
+        path: ./gitops/${{ ctx.stage }}/${{ vars.namespace }}/${{ ctx.project }}
+    - uses: kustomize-build
+      config:
+        path: ./proposal/kubernetes/${{ ctx.project }}/envs/${{ ctx.stage }}
+        outPath: ./gitops/${{ ctx.stage }}/${{ vars.namespace }}/${{ ctx.project }}/manifests.yaml
+    - uses: file-write
+      config:
+        path: ./gitops/${{ ctx.stage }}/${{ vars.namespace }}/${{ ctx.project }}/kustomization.yaml
+        permissions: "0644"
+        contents: |
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          resources:
+            - manifests.yaml
+    - uses: git-commit
+      config:
+        path: ./gitops
+        message: "${{ ctx.stage }}: render ${{ commitFrom(vars.platformRepo).ID }}"
+    - uses: git-push
+      retry:
+        errorThreshold: 5
+      config:
+        path: ./gitops
+    # "Application not found" is an error, so the default threshold of 1 ends
+    # the promotion. make run applies this generator after the first commit.
+    # The retries cover the moment between that apply and the Application
+    # existing, and a later directory that shows up on the 20s poll.
+    - uses: argocd-update
+      retry:
+        errorThreshold: 16
+        timeout: 3m
+      config:
+        apps:
+          - name: ${{ ctx.project }}-${{ vars.namespace }}-${{ ctx.stage }}
+            sources:
+              - repoURL: ${{ vars.gitRepo }}
+    - uses: argocd-wait
+      retry:
+        errorThreshold: 16
+        timeout: 5m
+      config:
+        apps:
+          - name: ${{ ctx.project }}-${{ vars.namespace }}-${{ ctx.stage }}

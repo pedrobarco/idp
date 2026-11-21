@@ -1,5 +1,7 @@
-# Root Application that tracks kubernetes/argocd/applicationsets on the platform repo.
-# Argo CD applies any ApplicationSet dropped in that directory.
+# Root Application that tracks kubernetes/argocd/resources/applicationsets.
+# gitops.yaml deploys every rendered gitops directory. kargo-projects.yaml
+# deploys one Application per Kargo project. kargo-shared-resources.yaml
+# deploys resources/shared.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -10,7 +12,7 @@ spec:
   source:
     repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/platform.git
     targetRevision: HEAD
-    path: kubernetes/argocd/applicationsets
+    path: kubernetes/argocd/resources/applicationsets
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

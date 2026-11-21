@@ -1,0 +1,8 @@
+# ingress-nginx and the registry. Their namespaces carry the Kargo project
+# label, so the pipeline can adopt them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../kubernetes/ingress-nginx/envs/tools
+  - ../../../../kubernetes/registry/envs/tools

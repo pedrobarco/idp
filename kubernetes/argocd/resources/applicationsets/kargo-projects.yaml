@@ -1,0 +1,42 @@
+# One Application per directory under resources/<type>/*. Projects are the
+# type that promotes independently. The Application name is
+# kargo-project-<project>-<env>, and <env> is the tools cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kargo-projects
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/platform.git
+        revision: HEAD
+        # Same poll as gitops. A new project directory should not wait 3m.
+        requeueAfterSeconds: 20
+        directories:
+          - path: kubernetes/kargo/resources/projects/*
+  template:
+    metadata:
+      name: "kargo-project-{{ .path.basename }}-tools"
+      labels:
+        app.kubernetes.io/name: kargo-projects
+        app.kubernetes.io/part-of: idp
+        app.kubernetes.io/cluster: tools
+    spec:
+      project: default
+      source:
+        repoURL: http://forgejo-http.forgejo.svc.cluster.local:3000/idp/platform.git
+        targetRevision: HEAD
+        path: "{{ .path.path }}"
+      destination:
+        name: tools
+        namespace: "{{ .path.basename }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
