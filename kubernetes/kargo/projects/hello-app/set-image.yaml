@@ -2,6 +2,7 @@
 # It checks out hello-app main, sets the freight tag on deploy/envs/<stage>,
 # and replaces <cluster>/<stage>/hello-app in gitops. The stage name is the
 # workload namespace. Checkout stays on main until hello-app-config exists.
+# The gitops checkout creates main when the repo is still empty.
 # prod does not call this task: that stage is a gate and writes nothing.
 apiVersion: kargo.akuity.io/v1alpha1
 kind: PromotionTask
@@ -32,10 +33,13 @@ spec:
           - image: ${{ vars.imageRepo }}
             tag: ${{ imageFrom(vars.imageRepo).Tag }}
     - uses: git-clone
+      retry:
+        errorThreshold: 5
       config:
         repoURL: ${{ vars.gitRepo }}
         checkout:
           - branch: main
+            create: true
             path: ./gitops
     - uses: delete
       config:
@@ -58,6 +62,8 @@ spec:
         path: ./gitops
         message: "${{ ctx.stage }}: ${{ imageFrom(vars.imageRepo).Tag }}"
     - uses: git-push
+      retry:
+        errorThreshold: 5
       config:
         path: ./gitops
     - uses: argocd-update

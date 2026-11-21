@@ -22,12 +22,18 @@ log "Starting k3d cluster '${HOST_CLUSTER}'…"
 k3d cluster start "${HOST_CLUSTER}"
 
 log "Waiting for the tools cluster API…"
+ready=0
 for _ in $(seq 1 60); do
   if kubectl --context "${HOST_CONTEXT}" cluster-info &>/dev/null; then
+    ready=1
     break
   fi
   sleep 2
 done
+if [[ "${ready}" -ne 1 ]]; then
+  echo "ERROR: tools cluster API did not become ready." >&2
+  exit 1
+fi
 
 log "Host started."
 "${SCRIPT_DIR}/status.sh"

@@ -20,7 +20,6 @@ VCLUSTER_VERSION="0.37.7"
 # in-cluster proxy, which this port does not appear in.
 REG_NAME="k3d-kind-registry"
 REG_PORT="5001"
-REG_INTERNAL_PORT="5000"
 
 # Every ingress is served by the tools cluster controller on port 80.
 cluster_http_port() {
@@ -220,7 +219,8 @@ _forgejo_create_repo() {
   esac
 }
 
-# Create the repos setup publishes: gitops, platform, actions, and each projects/<name>.
+# Create the Forgejo repos. gitops stays empty; Kargo writes its first commit.
+# platform, actions, and each projects/<name> are filled by sync-projects.sh.
 provision_forgejo_repos() {
   local user pass project_path
   user="$(forgejo_admin_user)"

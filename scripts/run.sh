@@ -2,9 +2,9 @@
 #
 # run.sh
 #
-# Creates the tools cluster, two vclusters, bootstraps the tools, and activates GitOps.
+# Creates the tools cluster, two vclusters, bootstraps the tools and Kargo, and activates GitOps.
 #
-# Prerequisites: k3d, kubectl, kustomize, helm, docker, curl, git, python3
+# Prerequisites: k3d, kubectl, kustomize, helm, docker, curl, git, python3, openssl
 #
 set -euo pipefail
 
@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/utils.sh"
 
 # ---------- check prerequisites ---------------------------------------------
-REQUIRED_TOOLS=(k3d kubectl kustomize helm docker curl git python3)
+REQUIRED_TOOLS=(k3d kubectl kustomize helm docker curl git python3 openssl)
 missing=()
 for tool in "${REQUIRED_TOOLS[@]}"; do
   if ! command -v "${tool}" &>/dev/null; then
@@ -31,6 +31,28 @@ if ! docker info &>/dev/null; then
   echo "ERROR: Docker daemon is not running." >&2
   exit 1
 fi
+
+# Wait until every Deployment in a namespace has rolled out.
+wait_namespace_deployments() {
+  local ns="$1"
+  local name found=0
+  for _ in $(seq 1 30); do
+    if kubectl --context "${HOST_CONTEXT}" -n "${ns}" get deploy --no-headers 2>/dev/null | grep -q .; then
+      found=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "${found}" -ne 1 ]]; then
+    echo "ERROR: no deployments in ${ns} within 60s." >&2
+    return 1
+  fi
+  while IFS= read -r name; do
+    [[ -z "${name}" ]] && continue
+    log "Waiting for ${name} in ${ns}…"
+    kubectl --context "${HOST_CONTEXT}" -n "${ns}" rollout status "deployment/${name}" --timeout=300s
+  done < <(kubectl --context "${HOST_CONTEXT}" -n "${ns}" get deploy -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+}
 
 # ---------- 0. Registry + k3d host -------------------------------------------
 if ! k3d registry list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "${REG_NAME}"; then
@@ -113,6 +135,15 @@ for c in "${VCLUSTERS[@]}"; do
 done
 for pid in "${PIDS[@]}"; do wait "${pid}"; done
 
+# Kargo's admission webhook asks cert-manager for a certificate. The controller
+# has to be up before the first promotion, because that promotion is what
+# creates gitops main. The other tools arrive in that promotion.
+log "Waiting for cert-manager…"
+wait_namespace_deployments cert-manager
+log "Installing Kargo…"
+kustomize build --enable-helm "${REPO_ROOT}/kubernetes/kargo/envs/tools" | \
+  kubectl --context "${HOST_CONTEXT}" apply --server-side -f -
+
 log "Waiting for vclusters…"
 for c in "${VCLUSTERS[@]}"; do
   kubectl --context "${HOST_CONTEXT}" -n "vcluster-${c}" \
@@ -128,6 +159,8 @@ kubectl --context "${HOST_CONTEXT}" -n forgejo wait \
 runner_wait=$!
 wait "${argocd_wait}"
 wait "${runner_wait}"
+log "Waiting for Kargo…"
+wait_namespace_deployments kargo
 
 # ---------- 4. Register clusters with Argo CD --------------------------------
 log "Registering the tools cluster and vclusters with Argo CD…"
@@ -170,5 +203,32 @@ log "Syncing project content to Forgejo…"
 log "Applying root applicationsets Application…"
 kubectl --context "${HOST_CONTEXT}" apply -f "${REPO_ROOT}/kubernetes/argocd/bootstrap/root.yaml"
 
-log "Done! ArgoCD will now reconcile all workload applications."
+# The directory generators watch gitops, which is still empty. The tools
+# stages create main and those directories. hello-app waits for an image.
+log "Waiting for the tools stages to commit gitops…"
+deadline=$((SECONDS + 900))
+promoted=0
+while (( SECONDS < deadline )); do
+  pending=0
+  found=0
+  while read -r _ name phase; do
+    [[ "${name}" == "tools" ]] || continue
+    found=1
+    [[ "${phase}" == "Succeeded" ]] || pending=1
+  done < <(kubectl --context "${HOST_CONTEXT}" get stages.kargo.akuity.io -A \
+    -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.status.lastPromotion.status.phase}{"\n"}{end}' \
+    2>/dev/null || true)
+  if [[ "${found}" -eq 1 && "${pending}" -eq 0 ]]; then
+    promoted=1
+    break
+  fi
+  sleep 10
+done
+if [[ "${promoted}" -ne 1 ]]; then
+  echo "ERROR: tools stages did not promote within 15m." >&2
+  "${SCRIPT_DIR}/status.sh" || true
+  exit 1
+fi
+
+log "Tools stages have committed gitops. hello-app appears after the first image."
 "${SCRIPT_DIR}/status.sh"

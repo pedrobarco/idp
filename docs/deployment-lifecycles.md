@@ -24,7 +24,7 @@ Operational changes that apply to a single environment: replica count, resource 
 
 **Trigger:** A PR changes `projects/hello-app/deploy/envs/<stage>`. The config Warehouse creates a Freight. dev renders first. Stages whose env directory did not change produce an empty commit and still have to succeed before the stage that owns the patch can render it.
 
-Today the live directories are already in the gitops repo, and `make sync` does not publish that repo again. Editing `projects/hello-app/deploy/envs/<stage>` changes the next fresh seed. The running directory changes when Kargo promotes. That is the behavior the config lifecycle replaces.
+`make sync` does not publish the gitops repo. A live directory exists only after Kargo promotes that stage. Editing `projects/hello-app/deploy/envs/<stage>` changes what the next promotion of that stage renders. That is the behavior the config lifecycle replaces.
 
 ### 3. Behavior-affecting configuration
 
@@ -43,7 +43,7 @@ projects/hello-app/deploy/              proposal, Warehouse includePaths
 <cluster>/<namespace>/hello-app/        rendered YAML in the gitops repo, Argo CD auto-sync
 ```
 
-Pull requests do not edit the live directories. `make sync` leaves gitops `main` alone after the seed, so rendered output and image tags stay as Kargo wrote them.
+Pull requests do not edit the live directories. `make sync` never writes gitops, so rendered output and image tags stay as Kargo wrote them.
 
 ### 4. Multi-environment commit
 
@@ -78,7 +78,7 @@ The exception is coupled applications that must be deployed together (e.g. an AP
 
 ## Current State
 
-Image promotion is operational on hello-app. CI pushes an image, the Warehouse discovers it through the TLS registry proxy, and the Freight moves dev → qa → stage → prod → prod-1 and prod-2. qa, stage, and prod are manual. prod deploys nothing. prod-1 and prod-2 are automatic. Each deploying promotion waits until the Application reports the freight tag. dev's gitops directory is rendered manifests. qa, stage, prod-1, and prod-2 still build `deploy/base` until their next promotion. hello-app is still a Deployment. Argo Rollouts and the config Warehouse are not built yet. A change under `deploy/envs/<stage>` is picked up on the next promotion of that stage, from hello-app `main`. The reusable `publish` convention is the next target in [progressive-delivery.md](progressive-delivery.md).
+Image promotion is operational on hello-app. CI pushes an image, the Warehouse discovers it through the TLS registry proxy, and the Freight moves dev → qa → stage → prod → prod-1 and prod-2. qa, stage, and prod are manual. prod deploys nothing. prod-1 and prod-2 are automatic. Each deploying promotion waits until the Application reports the freight tag. The gitops repo starts empty. The first tools promotion creates `main` and the platform directories. A hello-app directory appears when that stage promotes. hello-app is still a Deployment. Argo Rollouts and the config Warehouse are not built yet. A change under `deploy/envs/<stage>` is picked up on the next promotion of that stage, from hello-app `main`. The reusable `publish` convention is the next target in [progressive-delivery.md](progressive-delivery.md).
 
 ## Acceptance Criteria
 

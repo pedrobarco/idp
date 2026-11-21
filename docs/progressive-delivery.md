@@ -32,7 +32,7 @@ Kargo Warehouses watch for new artifacts (container images, git commits, Helm ch
 
 Deploying stages call the hello-app `set-image` PromotionTask. It runs:
 
-1. `git-clone` — check out the hello-app repo on `main`
+1. `git-clone` — check out the hello-app repo on `main`, and check out gitops `main`, creating that branch when the repo is empty
 2. `kustomize-set-image` — set the freight tag on `deploy/envs/<stage>`
 3. `kustomize-build` — render that env to plain manifests in the gitops directory
 4. `git-commit` + `git-push` — commit and push the gitops repo
@@ -70,7 +70,7 @@ Scheduled windows (qa and stage daily, production weekly) remain future policy. 
 
 ### Config trigger
 
-Image promotion subscribes only to the registry. A promotion renders hello-app `main` into that stage's gitops directory. Stages that have not been promoted since the render change still build `deploy/base` through the seeded kustomization.
+Image promotion subscribes only to the registry. A promotion renders hello-app `main` into that stage's gitops directory. A stage that has not been promoted yet has no directory, so Argo CD has no Application for it.
 
 Config that must soak uses a second Warehouse and a tree Argo CD does not sync:
 
@@ -79,7 +79,7 @@ Config that must soak uses a second Warehouse and a tree Argo CD does not sync:
 - Each deploying stage requests both Freights. A promotion renders that stage's env at the config commit, sets the image Freight's tag, and commits plain manifests under `<cluster>/<namespace>/hello-app`.
 - prod stays a gate with no render. prod-1 and prod-2 render their own env directories after the click.
 
-The two Warehouses keep their own cadence. One Warehouse with both subscriptions would ship the newest image and the newest commit as a single Freight. This config path is the plan; the image path above is what is running. dev has been rendered once. qa, stage, prod-1, and prod-2 still build `deploy/base` through the seeded kustomization until their next promotion.
+The two Warehouses keep their own cadence. One Warehouse with both subscriptions would ship the newest image and the newest commit as a single Freight. This config path is the plan; the image path above is what is running. A hello-app directory exists only after that stage has promoted.
 
 ## Next: one publish convention
 

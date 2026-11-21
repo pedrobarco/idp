@@ -23,11 +23,17 @@ spec:
         checkout:
           - commit: ${{ commitFrom(vars.platformRepo).ID }}
             path: ./proposal
+    # create makes the empty gitops repo's main on the first promotion.
+    # Several tools stages do this at once. The default error threshold is 1,
+    # which would fail the losers of that race instead of retrying the clone.
     - uses: git-clone
+      retry:
+        errorThreshold: 5
       config:
         repoURL: ${{ vars.gitRepo }}
         checkout:
           - branch: main
+            create: true
             path: ./gitops
     - uses: delete
       config:
@@ -50,6 +56,8 @@ spec:
         path: ./gitops
         message: "${{ ctx.stage }}: render ${{ commitFrom(vars.platformRepo).ID }}"
     - uses: git-push
+      retry:
+        errorThreshold: 5
       config:
         path: ./gitops
     - uses: argocd-update

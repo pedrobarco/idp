@@ -5,20 +5,21 @@
 # Publishes folders from this repo to Forgejo. This repo stays a GitHub
 # history: the script never commits, merges, or adds remotes here.
 #
-#   kubernetes/{argocd,kargo,<component>} → platform, under kubernetes/
+#   kubernetes/<module>/ → platform, under kubernetes/
 #   actions/           → actions
 #   projects/<name>/   → <name>
 #
+# gitops is not published here. Provision creates it empty, and the first
+# Kargo promotion commits its main branch.
+#
 # Each Forgejo repo is cloned under .sync/ (gitignored). actions, projects, and
 # platform replace their tree. platform is force-pushed with --force-with-lease
-# when Forgejo moved during the sync. gitops is seeded once, when it has no
-# main branch, from each module's envs/ and from hello-app's deploy/envs/.
-# After that Kargo is the only writer.
+# when Forgejo moved during the sync.
 #
 # Usage:
 #   ./scripts/sync-projects.sh
 #
-# Prerequisites: git, rsync, python3
+# Prerequisites: git, rsync
 #
 set -euo pipefail
 
@@ -114,7 +115,7 @@ sync_prefix() {
 # Publish the control plane. Kargo does not write this repo, so the tree is replaced.
 # Layout matches the platform repo: kubernetes/argocd and kubernetes/kargo.
 sync_platform() {
-  local remote work parent_head src
+  local remote work parent_head src src_path
   remote=$(forgejo_remote_url platform)
   work="${REPO_ROOT}/.sync/platform"
   parent_head=$(git -C "${REPO_ROOT}" rev-parse HEAD)
@@ -141,10 +142,12 @@ sync_platform() {
 
   find "${work}" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
   mkdir -p "${work}/kubernetes"
-  for src in argocd kargo cert-manager forgejo forgejo-actions ingress-nginx registry; do
+  for src_path in "${REPO_ROOT}/kubernetes"/*/; do
+    [[ -d "${src_path}" ]] || continue
+    src="$(basename "${src_path}")"
     excludes=(--exclude '.git/' --exclude 'charts/' --exclude 'runner-token.env')
     rsync -a --delete "${excludes[@]}" \
-      "${REPO_ROOT}/kubernetes/${src}/" "${work}/kubernetes/${src}/"
+      "${src_path}" "${work}/kubernetes/${src}/"
   done
   find "${work}" -type d -name charts -prune -exec rm -rf {} +
 
@@ -165,94 +168,12 @@ sync_platform() {
   git -C "${work}" push -q --force-with-lease origin HEAD:main
 }
 
-# Seed gitops from each module's envs/ and from hello-app's deploy/envs/
-# when the Forgejo repo has no main. Each env kustomization points at
-# ../../base so local builds work before Forgejo exists. The seed rewrites
-# that line to the platform or hello-app repo and places the directory at
-# the gitops path. A later sync leaves main alone, including image tags and
-# any directory Kargo has rendered.
-seed_gitops() {
-  local remote work parent_head
-  remote=$(forgejo_remote_url gitops)
-  if git ls-remote --exit-code --heads "${remote}" main &>/dev/null; then
-    log "gitops main already exists; leaving it for Kargo"
-    return 0
-  fi
-
-  work="${REPO_ROOT}/.sync/gitops"
-  parent_head=$(git -C "${REPO_ROOT}" rev-parse HEAD)
-  mkdir -p "${REPO_ROOT}/.sync"
-  rm -rf "${work}"
-  mkdir -p "${work}"
-  git -C "${work}" init -q -b main
-  git -C "${work}" remote add origin "${remote}"
-
-  python3 - "${work}" "${REPO_ROOT}" <<'PY'
-import pathlib
-import sys
-
-work = pathlib.Path(sys.argv[1])
-repo = pathlib.Path(sys.argv[2])
-platform = "http://forgejo-http.forgejo.svc.cluster.local:3000/idp/platform.git"
-hello_app = "http://forgejo-http.forgejo.svc.cluster.local:3000/idp/hello-app.git"
-
-
-def remote(module: str) -> str:
-    return f"{platform}//kubernetes/{module}/base?ref=main"
-
-
-# Source env directory, gitops directory, remote base that replaces "../..".
-seeds = [
-    ("kubernetes/argocd/envs/tools", "tools/argocd/argocd", remote("argocd")),
-    ("kubernetes/cert-manager/envs/tools", "tools/cert-manager/cert-manager", remote("cert-manager")),
-    ("kubernetes/forgejo/envs/tools", "tools/forgejo/forgejo", remote("forgejo")),
-    ("kubernetes/forgejo-actions/envs/tools", "tools/forgejo/forgejo-actions", remote("forgejo-actions")),
-    ("kubernetes/ingress-nginx/envs/tools", "tools/ingress-nginx/ingress-nginx", remote("ingress-nginx")),
-    ("kubernetes/kargo/envs/tools", "tools/kargo/kargo", remote("kargo")),
-    ("kubernetes/registry/envs/tools", "tools/registry/registry", remote("registry")),
-    ("projects/hello-app/deploy/envs/dev", "nonprod/dev/hello-app", f"{hello_app}//deploy/base?ref=main"),
-    ("projects/hello-app/deploy/envs/qa", "nonprod/qa/hello-app", f"{hello_app}//deploy/base?ref=main"),
-    ("projects/hello-app/deploy/envs/stage", "nonprod/stage/hello-app", f"{hello_app}//deploy/base?ref=main"),
-    ("projects/hello-app/deploy/envs/prod-1", "prod/prod-1/hello-app", f"{hello_app}//deploy/base?ref=main"),
-    ("projects/hello-app/deploy/envs/prod-2", "prod/prod-2/hello-app", f"{hello_app}//deploy/base?ref=main"),
-]
-
-
-def skip(path: pathlib.Path) -> bool:
-    return "charts" in path.parts or path.name == "runner-token.env"
-
-
-for source, dest, base in seeds:
-    src = repo / source
-    if not src.is_dir():
-        raise SystemExit(f"missing env {source}")
-    for path in src.rglob("*"):
-        if not path.is_file() or skip(path):
-            continue
-        text = path.read_text().replace("- ../..", f"- {base}")
-        target = work / dest / path.relative_to(src)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text)
-PY
-
-  git -C "${work}" add -A
-  git -C "${work}" \
-    -c user.name="idp" -c user.email="idp@local" \
-    commit -q -m "seed: gitops from ${parent_head}"
-  git -C "${work}" push -q origin HEAD:main
-}
-
 sync_all() {
   local project_path project
 
   log "Syncing component bases → platform…"
   sync_platform
   log "platform ✓"
-  echo
-
-  log "Seeding gitops when it has no main…"
-  seed_gitops
-  log "gitops ✓"
   echo
 
   log "Syncing actions…"

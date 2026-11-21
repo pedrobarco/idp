@@ -94,10 +94,11 @@ Argo CD, Forgejo, and Kargo set memory requests and limits. Dex, notifications, 
 
 0. **k3d** — create the registry and the tools cluster
 1. **Bootstrap** — install Argo CD, Forgejo, and cert-manager, register the Actions runner, and install the two vclusters
-2. **Register** — give Argo CD a cluster secret for the tools cluster and each vcluster from the vcluster admin client certificate
-3. **Repos** — create the Forgejo repositories through the API
-4. **Sync** — publish each `kubernetes/<module>/` (base and `envs/`) to the Forgejo `platform` repo, plus `actions/` and each `projects/*`. Seed the `gitops` repo from those envs only when it has no `main`; after that Kargo is the only writer
-5. **Activate** — apply the root Application that tracks `kubernetes/argocd/applicationsets` on `platform`
+2. **Kargo** — once cert-manager is ready, install Kargo from `kubernetes/kargo/envs/tools`. The controller has to be running before the first promotion
+3. **Register** — give Argo CD a cluster secret for the tools cluster and each vcluster from the vcluster admin client certificate
+4. **Repos** — create `platform`, `actions`, each `projects/*` repo, and an empty `gitops`
+5. **Sync** — publish `kubernetes/<module>/` to `platform`, `actions/` to `actions`, and each `projects/*`. `gitops` is left empty
+6. **Activate** — apply the root Application that tracks `kubernetes/argocd/applicationsets` on `platform`, then wait until the tools stages have committed `gitops` `main`. hello-app appears after its first image
 
 ### CI Pipeline
 
@@ -119,7 +120,7 @@ See [progressive-delivery.md](docs/progressive-delivery.md) for the full promoti
 
 ### GitOps Loop
 
-The `kubernetes/argocd/applicationsets/` directory contains ApplicationSet declarations. Workload and addon sets use a git directory generator against the gitops repo. Its root is the live cluster tree, seeded once from each module's `envs/` and from `projects/hello-app/deploy/envs/`:
+The `kubernetes/argocd/applicationsets/` directory contains ApplicationSet declarations. Workload and addon sets use a git directory generator against the gitops repo. Kargo is the only writer. A directory appears when a stage promotes:
 
 ```
 tools/<namespace>/<app>/
@@ -127,7 +128,7 @@ nonprod/<namespace>/<app>/
 prod/<namespace>/<app>/
 ```
 
-`tools` is the k3d cluster. `nonprod` and `prod` are the vclusters. Each matching directory becomes an Argo CD Application. The seed writes the env kustomization there and points it at `base/` on platform or on the hello-app repo. A platform promotion replaces that directory with rendered manifests. A hello-app promotion replaces that directory with the rendered env. Forgejo is the exception that bootstrap applies directly: its runner secret is generated locally and is not in the GitOps repo.
+`tools` is the k3d cluster. `nonprod` and `prod` are the vclusters. Each matching directory becomes an Argo CD Application. A platform promotion renders `kubernetes/<module>/envs/<stage>` into that directory. A hello-app promotion renders `deploy/envs/<stage>` into it. Until the first promotion of a stage, that directory does not exist and Argo CD has no Application for it. Forgejo is the exception that bootstrap applies directly: its runner secret is generated locally and is not in the GitOps repo.
 
 ### Adding a New App
 
@@ -135,13 +136,13 @@ prod/<namespace>/<app>/
 2. Create `projects/<name>/deploy/envs/<stage>/` for each environment. Its kustomization points at `../../base`
 3. Create an ApplicationSet in `kubernetes/argocd/applicationsets/<name>.yaml`
 4. Create `kubernetes/kargo/projects/<name>/` with a Project, Warehouse, Stages, and the app's PromotionTask
-5. Run `make sync` to publish the app repo. The gitops directory has to exist before Argo CD can discover it. A fresh cluster gets it from the seed. An existing gitops repo gets it from the promotion that writes that directory.
+5. Run `make sync` to publish the app repo. Argo CD discovers the directory when the stage's first promotion commits it to `gitops`.
 
 ### Adding a Platform Destination
 
 1. Create `kubernetes/<module>/envs/<stage>/kustomization.yaml` pointing at `../../base`
 2. Add a Stage with that same name under `kubernetes/kargo/projects/<module>`. `bundle` reads `kubernetes/<module>/envs/<stage>`. Set `namespace` only when the workload namespace is not the project name
-3. Run `make sync` to publish the module. Argo CD discovers the directory once it exists in gitops, from the seed or from the promotion that renders it.
+3. Run `make sync` to publish the module. Argo CD discovers the directory when that stage's promotion commits it to `gitops`.
 
 ### Platform Status (`make status`)
 
@@ -191,7 +192,7 @@ prod/<namespace>/<app>/
 | `make stop`   | Stop clusters without losing state (docker stop)      |
 | `make start`  | Resume previously stopped clusters (docker start)     |
 | `make clean`  | Destroy the clusters and the local registry           |
-| `make sync`   | Publish platform, actions, and app repos. Seed gitops only when it has no main |
+| `make sync`   | Publish platform, actions, and app repos              |
 | `make status` | Show platform status                                  |
 | `make help`   | List all targets                                      |
 
@@ -202,4 +203,4 @@ prod/<namespace>/<app>/
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 - [kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/)
 - [helm](https://helm.sh/docs/intro/install/)
-- curl, git
+- curl, git, python3, openssl
